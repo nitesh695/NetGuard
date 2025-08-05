@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:netguard/netguard.dart';
@@ -59,6 +60,10 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
     _netGuard.options.connectTimeout = const Duration(seconds: 10);
     _netGuard.options.receiveTimeout = const Duration(seconds: 10);
     _netGuard.options.sendTimeout = const Duration(seconds: 10);
+    _netGuard.options.encryptionFunction = (body){
+      final json = jsonEncode(body);
+      return base64Encode(utf8.encode(json));
+    };
 
     // Configure HTTP client adapter for certificate handling
     (_netGuard.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
@@ -137,6 +142,7 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
       // Your exact API call pattern
       final response = await _netGuard.post(
         '/posts', // Using posts endpoint as demo for your '/api/secure-data'
+        encryptBody: true,
         data: {
           'sensitive_info': 'This will be encrypted',
           'user_id': 12345,
@@ -184,8 +190,7 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
       );
 
       // Use static method
-      final response = await _netGuard.get('/users/1');
-      final response1 = await _netGuard.request('/users/1',options: Options());
+      final response = await NetGuard.instance.get('/users/1',encryptBody: false);
 
       _addLog('📊 Static Response:');
       _addLog('   Name: ${response.data['name']}');
@@ -201,43 +206,6 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
     }
   }
 
-  /// Example using quick setup
-  Future<void> _makeQuickSetupCall() async {
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      _addLog('🚀 Using NetGuard Quick Setup...');
-
-      // Quick setup with all your common configurations
-      NetGuard.quickSetup(
-        baseUrl: 'https://jsonplaceholder.typicode.com',
-        accessToken: _accessToken,
-        timeout: const Duration(seconds: 20),
-        allowBadCertificates: true,
-        logger: (message) => _addLog('NetGuard Log: $message'),
-      );
-
-      // Make call using static method after quick setup
-      final response = await _netGuard.get('/albums', queryParameters: {
-        'userId': 1,
-      });
-
-      _addLog('📊 Quick Setup Response:');
-      _addLog('   Total Albums: ${response.data.length}');
-      if (response.data.isNotEmpty) {
-        _addLog('   First Album: ${response.data[0]['title']}');
-      }
-
-    } catch (e) {
-      _addLog('💥 Quick setup error: $e');
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
-    }
-  }
 
   /// Example demonstrating different HTTP methods
   Future<void> _demonstrateHttpMethods() async {
@@ -249,11 +217,15 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
       _addLog('🔄 Demonstrating various HTTP methods...');
 
       // GET request
-      final getResponse = await _netGuard.get('/posts/1');
+      final getResponse = await _netGuard.get('/posts/1',encryptBody: true);
+      final getResponse1 = await _netGuard.request('/posts/1',encryptBody: true);
+
       _addLog('GET: Retrieved post "${getResponse.data['title']}"');
 
       // POST request
-      final postResponse = await _netGuard.post('/posts', data: {
+      final postResponse = await _netGuard.post('/posts',
+          encryptBody: true,
+          data: {
         'title': 'NetGuard Test',
         'body': 'Testing NetGuard HTTP methods',
         'userId': 1,
@@ -261,7 +233,9 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
       _addLog('POST: Created post with ID ${postResponse.data['id']}');
 
       // PUT request
-      final putResponse = await _netGuard.put('/posts/1', data: {
+      final putResponse = await _netGuard.put('/posts/1',
+          encryptBody: true,
+          data: {
         'id': 1,
         'title': 'Updated via NetGuard PUT',
         'body': 'This post was updated using NetGuard PUT method',
@@ -270,13 +244,15 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
       _addLog('PUT: Updated post "${putResponse.data['title']}"');
 
       // PATCH request
-      final patchResponse = await _netGuard.patch('/posts/1', data: {
+      final patchResponse = await _netGuard.patch('/posts/1',
+          encryptBody: true,
+          data: {
         'title': 'Patched via NetGuard',
       });
       _addLog('PATCH: Patched post "${patchResponse.data['title']}"');
 
       // DELETE request
-      final deleteResponse = await _netGuard.delete('/posts/1');
+      final deleteResponse = await _netGuard.delete('/posts/1',encryptBody: true,);
       _addLog('DELETE: Status ${deleteResponse.statusCode}');
 
     } catch (e) {
@@ -298,7 +274,7 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
       _addLog('🔍 Demonstrating error handling...');
 
       // This will cause a 404 error
-      await _netGuard.get('/nonexistent-endpoint');
+      await _netGuard.get('/nonexistent-endpoint',encryptBody: true,);
 
     } catch (e) {
       if (e is DioException) {
@@ -379,18 +355,6 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: _isLoading ? null : _makeQuickSetupCall,
-                        icon: const Icon(Icons.flash_on),
-                        label: const Text('Quick Setup'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange,
-                          foregroundColor: Colors.white,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
                     Expanded(
                       child: ElevatedButton.icon(
                         onPressed: _isLoading ? null : _demonstrateHttpMethods,

@@ -1,9 +1,7 @@
-import 'dart:async';
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'netguard_base.dart';
-import 'netguard_options.dart';
 
 /// NetGuard - A powerful HTTP client built on top of Dio
 ///
@@ -135,59 +133,4 @@ class NetGuard extends NetGuardBase {
     }
   }
 
-  /// Quick setup method for common configurations
-  static void quickSetup({
-    required String baseUrl,
-    String? accessToken,
-    Duration timeout = const Duration(seconds: 30),
-    bool allowBadCertificates = false,
-    void Function(String message)? logger,
-  }) {
-    final netGuard = instance;
-
-    // Configure basic options
-    netGuard.options.baseUrl = baseUrl;
-    netGuard.options.connectTimeout = timeout;
-    netGuard.options.receiveTimeout = timeout;
-    netGuard.options.sendTimeout = timeout;
-
-    // Configure HTTP client adapter if needed
-    if (allowBadCertificates) {
-      (netGuard.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
-        final client = HttpClient();
-        client.badCertificateCallback = (cert, host, port) => true;
-        client.idleTimeout = const Duration(seconds: 15);
-        return client;
-      };
-    }
-
-    // Add auth and logging interceptor
-    netGuard.interceptors.add(
-      InterceptorsWrapper(
-        onRequest: (options, handler) async {
-          if (accessToken?.isNotEmpty == true) {
-            options.headers['Authorization'] = 'Bearer $accessToken';
-          }
-
-          if (logger != null) {
-            logger('🚀 ${options.method} ${options.uri}');
-          }
-
-          return handler.next(options);
-        },
-        onResponse: (response, handler) async {
-          if (logger != null) {
-            logger('✅ ${response.statusCode} ${response.requestOptions.uri}');
-          }
-          return handler.next(response);
-        },
-        onError: (error, handler) async {
-          if (logger != null) {
-            logger('❌ ${error.type} ${error.requestOptions.uri}: ${error.message}');
-          }
-          return handler.next(error);
-        },
-      ),
-    );
-  }
 }

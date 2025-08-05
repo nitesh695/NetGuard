@@ -1,11 +1,24 @@
+import 'dart:convert';
 import 'package:dio/dio.dart';
 
-/// NetGuard options that extend Dio's BaseOptions
 class NetGuardOptions {
   late final BaseOptions _baseOptions;
 
+  /// Function to encrypt/encode the request body
+  late String Function(dynamic body) encryptionFunction;
+
+  /// Default body encryption function using jsonEncode
+  static String _defaultEncryptionFunction(dynamic body) {
+    return jsonEncode(body);
+  }
+
   /// Create NetGuard options from BaseOptions
-  NetGuardOptions.fromBaseOptions(this._baseOptions);
+  NetGuardOptions.fromBaseOptions(
+      this._baseOptions, {
+        String Function(dynamic body)? encryptionFunction,
+      }) {
+    this.encryptionFunction = encryptionFunction ?? _defaultEncryptionFunction;
+  }
 
   /// Create NetGuard options with parameters
   NetGuardOptions({
@@ -25,6 +38,7 @@ class NetGuardOptions {
     ResponseDecoder? responseDecoder,
     ListFormat? listFormat,
     bool? persistentConnection,
+    String Function(dynamic body)? encryptionFunction,
   }) {
     _baseOptions = BaseOptions(
       baseUrl: baseUrl ?? '',
@@ -44,6 +58,8 @@ class NetGuardOptions {
       listFormat: listFormat,
       persistentConnection: persistentConnection,
     );
+
+    this.encryptionFunction = encryptionFunction ?? _defaultEncryptionFunction;
   }
 
   /// Base URL for requests
@@ -131,6 +147,7 @@ class NetGuardOptions {
     ResponseDecoder? responseDecoder,
     ListFormat? listFormat,
     bool? persistentConnection,
+    String Function(dynamic body)? encryptionFunction,
   }) {
     return NetGuardOptions(
       baseUrl: baseUrl ?? this.baseUrl,
@@ -149,6 +166,7 @@ class NetGuardOptions {
       responseDecoder: responseDecoder ?? this.responseDecoder,
       listFormat: listFormat ?? this.listFormat,
       persistentConnection: persistentConnection ?? this.persistentConnection,
+      encryptionFunction: encryptionFunction ?? this.encryptionFunction,
     );
   }
 

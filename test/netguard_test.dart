@@ -99,20 +99,6 @@ void main() {
         expect(instance.options.connectTimeout, equals(const Duration(seconds: 15)));
         expect(instance.options.headers['X-Test'], equals('static-test'));
       });
-
-      test('should use quick setup correctly', () {
-        NetGuard.quickSetup(
-          baseUrl: 'https://quick-setup.com',
-          accessToken: 'test-token',
-          timeout: const Duration(seconds: 25),
-          allowBadCertificates: true,
-        );
-
-        final instance = NetGuard.instance;
-        expect(instance.options.baseUrl, equals('https://quick-setup.com'));
-        expect(instance.options.connectTimeout, equals(const Duration(seconds: 25)));
-        expect(instance.interceptors.length, greaterThan(0));
-      });
     });
 
     group('NetGuardOptions Tests', () {

@@ -56,10 +56,18 @@ abstract class NetGuardBase {
         Options? options,
         CancelToken? cancelToken,
         ProgressCallback? onReceiveProgress,
+        bool encryptBody = false,
       }) {
+    String encrypted = '';
+    if (encryptBody) {
+      encrypted = this.options.encryptionFunction(data);
+      options ??= Options();
+      options.contentType = options.contentType ?? Headers.textPlainContentType;
+    }
+
     return _dio.get<T>(
       path,
-      data: data,
+      data: encryptBody ? encrypted :data,
       queryParameters: queryParameters,
       options: options,
       cancelToken: cancelToken,
@@ -86,10 +94,19 @@ abstract class NetGuardBase {
         CancelToken? cancelToken,
         ProgressCallback? onSendProgress,
         ProgressCallback? onReceiveProgress,
+        bool encryptBody = false,
       }) {
+
+    String encrypted = '';
+    if (encryptBody) {
+      encrypted = this.options.encryptionFunction(data);
+      options ??= Options();
+      options.contentType = options.contentType ?? Headers.textPlainContentType;
+    }
+
     return _dio.post<T>(
       path,
-      data: data,
+      data: encryptBody ? encrypted :data,
       queryParameters: queryParameters,
       options: options,
       cancelToken: cancelToken,
@@ -107,10 +124,17 @@ abstract class NetGuardBase {
         CancelToken? cancelToken,
         ProgressCallback? onSendProgress,
         ProgressCallback? onReceiveProgress,
+        bool encryptBody = false,
       }) {
+    String encrypted = '';
+    if (encryptBody) {
+      encrypted = this.options.encryptionFunction(data);
+      options ??= Options();
+      options.contentType = options.contentType ?? Headers.textPlainContentType;
+    }
     return _dio.put<T>(
       path,
-      data: data,
+      data: encryptBody ? encrypted :data,
       queryParameters: queryParameters,
       options: options,
       cancelToken: cancelToken,
@@ -128,10 +152,17 @@ abstract class NetGuardBase {
         CancelToken? cancelToken,
         ProgressCallback? onSendProgress,
         ProgressCallback? onReceiveProgress,
+        bool encryptBody = false,
       }) {
+    String encrypted = '';
+    if (encryptBody) {
+      encrypted = this.options.encryptionFunction(data);
+      options ??= Options();
+      options.contentType = options.contentType ?? Headers.textPlainContentType;
+    }
     return _dio.patch<T>(
       path,
-      data: data,
+      data: encryptBody ? encrypted :data,
       queryParameters: queryParameters,
       options: options,
       cancelToken: cancelToken,
@@ -147,10 +178,17 @@ abstract class NetGuardBase {
         Map<String, dynamic>? queryParameters,
         Options? options,
         CancelToken? cancelToken,
+        bool encryptBody = false,
       }) {
+     String encrypted ='';
+    if (encryptBody) {
+      encrypted = this.options.encryptionFunction(data);
+      options ??= Options();
+      options.contentType = options.contentType ?? Headers.textPlainContentType;
+    }
     return _dio.delete<T>(
       path,
-      data: data,
+      data: encryptBody ? encrypted :data,
       queryParameters: queryParameters,
       options: options,
       cancelToken: cancelToken,
@@ -164,10 +202,17 @@ abstract class NetGuardBase {
         Map<String, dynamic>? queryParameters,
         Options? options,
         CancelToken? cancelToken,
+        bool encryptBody = false,
       }) {
+    String encrypted = '';
+    if (encryptBody) {
+      encrypted = this.options.encryptionFunction(data);
+      options ??= Options();
+      options.contentType = options.contentType ?? Headers.textPlainContentType;
+    }
     return _dio.head<T>(
       path,
-      data: data,
+      data: encryptBody ? encrypted :data,
       queryParameters: queryParameters,
       options: options,
       cancelToken: cancelToken,
@@ -183,10 +228,17 @@ abstract class NetGuardBase {
         Options? options,
         ProgressCallback? onSendProgress,
         ProgressCallback? onReceiveProgress,
+        bool encryptBody = false,
       }) {
+    String encrypted = '';
+    if (encryptBody) {
+      encrypted = this.options.encryptionFunction(data);
+      options ??= Options();
+      options.contentType = options.contentType ?? Headers.textPlainContentType;
+    }
     return _dio.request<T>(
       path,
-      data: data,
+      data: encryptBody ? encrypted :data,
       queryParameters: queryParameters,
       cancelToken: cancelToken,
       options: options,
@@ -203,10 +255,17 @@ abstract class NetGuardBase {
         Options? options,
         ProgressCallback? onSendProgress,
         ProgressCallback? onReceiveProgress,
+        bool encryptBody = false,
       }) {
+    String encrypted = '';
+    if (encryptBody) {
+      encrypted = this.options.encryptionFunction(data);
+      options ??= Options();
+      options.contentType = options.contentType ?? Headers.textPlainContentType;
+    }
     return _dio.requestUri<T>(
       uri,
-      data: data,
+      data: encryptBody ? encrypted :data,
       cancelToken: cancelToken,
       options: options,
       onSendProgress: onSendProgress,
@@ -225,7 +284,14 @@ abstract class NetGuardBase {
         String lengthHeader = Headers.contentLengthHeader,
         Object? data,
         Options? options,
+        bool encryptBody = false,
       }) {
+    String encrypted = '';
+    if (encryptBody) {
+      encrypted = this.options.encryptionFunction(data);
+      options ??= Options();
+      options.contentType = options.contentType ?? Headers.textPlainContentType;
+    }
     return _dio.download(
       urlPath,
       savePath,
@@ -234,7 +300,7 @@ abstract class NetGuardBase {
       cancelToken: cancelToken,
       deleteOnError: deleteOnError,
       lengthHeader: lengthHeader,
-      data: data,
+      data: encryptBody ? encrypted :data,
       options: options,
     );
   }
@@ -249,7 +315,14 @@ abstract class NetGuardBase {
         String lengthHeader = Headers.contentLengthHeader,
         Object? data,
         Options? options,
+        bool encryptBody = false,
       }) {
+    String encrypted = '';
+    if (encryptBody) {
+      encrypted = this.options.encryptionFunction(data);
+      options ??= Options();
+      options.contentType = options.contentType ?? Headers.textPlainContentType;
+    }
     return _dio.downloadUri(
       uri,
       savePath,
@@ -257,7 +330,7 @@ abstract class NetGuardBase {
       cancelToken: cancelToken,
       deleteOnError: deleteOnError,
       lengthHeader: lengthHeader,
-      data: data,
+      data: encryptBody ? encrypted :data,
       options: options,
     );
   }

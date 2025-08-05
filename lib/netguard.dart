@@ -6,7 +6,6 @@ export 'src/netguard_options.dart';
 export 'src/netguard_interceptors.dart';
 export 'src/netguard_response.dart';
 export 'src/netguard_error.dart';
-export 'src/netguard_static_api.dart';
 
 // Re-export Dio types for convenience
 export 'package:dio/dio.dart' show

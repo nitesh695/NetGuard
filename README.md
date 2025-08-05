@@ -120,7 +120,7 @@ init() async {
         return handler.next(options);
       },
       onError: (e, handler) async {
-        print("❌ Dio error: ${e.message}");
+        print("❌ NetGuard error: ${e.message}");
         // Handle error (close loaders, etc.)
         return handler.next(e);
       },
