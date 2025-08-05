@@ -1,0 +1,33 @@
+library netguard;
+
+export 'src/netguard.dart';
+export 'src/netguard_base.dart';
+export 'src/netguard_options.dart';
+export 'src/netguard_interceptors.dart';
+export 'src/netguard_response.dart';
+export 'src/netguard_error.dart';
+export 'src/netguard_static_api.dart';
+
+// Re-export Dio types for convenience
+export 'package:dio/dio.dart' show
+RequestOptions,
+Response,
+DioException,
+DioExceptionType,
+ResponseType,
+ListFormat,
+Headers,
+FormData,
+MultipartFile,
+CancelToken,
+ProgressCallback,
+ValidateStatus,
+ResponseDecoder,
+RequestEncoder,
+Transformer,
+HttpClientAdapter,
+IOHttpClientAdapter,
+Interceptor,
+InterceptorsWrapper,
+QueuedInterceptor,
+QueuedInterceptorsWrapper;
