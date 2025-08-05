@@ -25,9 +25,11 @@ ValidateStatus,
 ResponseDecoder,
 RequestEncoder,
 Transformer,
+Options,
 HttpClientAdapter,
-IOHttpClientAdapter,
 Interceptor,
 InterceptorsWrapper,
 QueuedInterceptor,
 QueuedInterceptorsWrapper;
+
+export 'package:dio/io.dart' show IOHttpClientAdapter;

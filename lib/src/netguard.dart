@@ -40,6 +40,8 @@ class NetGuard extends NetGuardBase {
   /// Create NetGuard from existing Dio instance
   NetGuard.fromDio(Dio dio) : super.fromDio(dio);
 
+  static NetGuard get instance => _defaultInstance ??= NetGuard();
+
   /// Create NetGuard with custom options
   factory NetGuard.withOptions({
     String? baseUrl,
@@ -80,15 +82,15 @@ class NetGuard extends NetGuardBase {
     return NetGuard(options);
   }
 
-  /// Get default NetGuard instance
-  static NetGuard get instance {
-    return _defaultInstance ??= NetGuard();
-  }
-
-  /// Set default NetGuard instance
-  static set instance(NetGuard netGuard) {
-    _defaultInstance = netGuard;
-  }
+  // /// Get default NetGuard instance
+  // static NetGuard get instance {
+  //   return _defaultInstance ??= NetGuard();
+  // }
+  //
+  // /// Set default NetGuard instance
+  // static set instance(NetGuard netGuard) {
+  //   _defaultInstance = netGuard;
+  // }
 
   // Static convenience methods using default instance
 

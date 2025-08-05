@@ -61,12 +61,12 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
     _netGuard.options.sendTimeout = const Duration(seconds: 10);
 
     // Configure HTTP client adapter for certificate handling
-    // (_netGuard.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
-    //   final client = HttpClient();
-    //   client.badCertificateCallback = (X509Certificate cert, String host, int port) => true;
-    //   client.idleTimeout = const Duration(seconds: 15);
-    //   return client;
-    // };
+    (_netGuard.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
+      final client = HttpClient();
+      client.badCertificateCallback = (X509Certificate cert, String host, int port) => true;
+      client.idleTimeout = const Duration(seconds: 15);
+      return client;
+    };
 
 
 
@@ -185,6 +185,7 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
 
       // Use static method
       final response = await _netGuard.get('/users/1');
+      final response1 = await _netGuard.request('/users/1',options: Options());
 
       _addLog('📊 Static Response:');
       _addLog('   Name: ${response.data['name']}');

@@ -183,7 +183,7 @@ class NetGuardAPI {
         ProgressCallback? onSendProgress,
         ProgressCallback? onReceiveProgress,
       }) {
-    return NetGuard.instance.request<T>(
+    return instance.request<T>(
       path,
       data: data,
       queryParameters: queryParameters,
