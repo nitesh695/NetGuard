@@ -12,6 +12,12 @@ class NetGuardOptions {
     return jsonEncode(body);
   }
 
+  /// Cache duration for Hive cache expiration
+  Duration? cacheDuration;
+
+  /// Max cache size (number of entries)
+  int? maxCacheSize;
+
   /// Create NetGuard options from BaseOptions
   NetGuardOptions.fromBaseOptions(
       this._baseOptions, {
@@ -39,6 +45,8 @@ class NetGuardOptions {
     ListFormat? listFormat,
     bool? persistentConnection,
     String Function(dynamic body)? encryptionFunction,
+    Duration? cacheDuration,
+    int? maxCacheSize,
   }) {
     _baseOptions = BaseOptions(
       baseUrl: baseUrl ?? '',
@@ -60,6 +68,8 @@ class NetGuardOptions {
     );
 
     this.encryptionFunction = encryptionFunction ?? _defaultEncryptionFunction;
+    this.cacheDuration = cacheDuration ?? const Duration(minutes: 5);
+    this.maxCacheSize = maxCacheSize ?? 100;
   }
 
   /// Base URL for requests
@@ -147,6 +157,8 @@ class NetGuardOptions {
     ResponseDecoder? responseDecoder,
     ListFormat? listFormat,
     bool? persistentConnection,
+    Duration? cacheDuration,
+    int? maxCacheSize,
     String Function(dynamic body)? encryptionFunction,
   }) {
     return NetGuardOptions(
@@ -167,6 +179,8 @@ class NetGuardOptions {
       listFormat: listFormat ?? this.listFormat,
       persistentConnection: persistentConnection ?? this.persistentConnection,
       encryptionFunction: encryptionFunction ?? this.encryptionFunction,
+      cacheDuration: cacheDuration ?? this.cacheDuration,
+      maxCacheSize: maxCacheSize ?? this.maxCacheSize,
     );
   }
 

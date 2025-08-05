@@ -1,6 +1,4 @@
-import 'dart:io';
 import 'package:dio/dio.dart';
-import 'package:dio/io.dart';
 import 'netguard_base.dart';
 
 /// NetGuard - A powerful HTTP client built on top of Dio
@@ -58,6 +56,9 @@ class NetGuard extends NetGuardBase {
     ResponseDecoder? responseDecoder,
     ListFormat? listFormat,
     bool? persistentConnection,
+    Duration? cacheDuration,
+    int? maxCacheSize,
+    String Function(dynamic body)? encryptionFunction,
   }) {
     final options = BaseOptions(
       baseUrl: baseUrl ?? '',
@@ -77,20 +78,22 @@ class NetGuard extends NetGuardBase {
       listFormat: listFormat,
       persistentConnection: persistentConnection,
     );
-    return NetGuard(options);
+
+    final netGuard = NetGuard(options);
+
+    // Set NetGuard-specific options
+    if (cacheDuration != null) {
+      netGuard.options.cacheDuration = cacheDuration;
+    }
+    if (maxCacheSize != null) {
+      netGuard.options.maxCacheSize = maxCacheSize;
+    }
+    if (encryptionFunction != null) {
+      netGuard.options.encryptionFunction = encryptionFunction;
+    }
+
+    return netGuard;
   }
-
-  // /// Get default NetGuard instance
-  // static NetGuard get instance {
-  //   return _defaultInstance ??= NetGuard();
-  // }
-  //
-  // /// Set default NetGuard instance
-  // static set instance(NetGuard netGuard) {
-  //   _defaultInstance = netGuard;
-  // }
-
-  // Static convenience methods using default instance
 
   /// Configure the default instance with common settings
   static void configure({
@@ -101,6 +104,9 @@ class NetGuard extends NetGuardBase {
     Map<String, dynamic>? headers,
     HttpClientAdapter? httpClientAdapter,
     List<Interceptor>? interceptors,
+    Duration? cacheDuration,
+    int? maxCacheSize,
+    String Function(dynamic body)? encryptionFunction,
   }) {
     final netGuard = instance;
 
@@ -131,6 +137,17 @@ class NetGuard extends NetGuardBase {
     if (interceptors != null) {
       netGuard.interceptors.addAll(interceptors);
     }
-  }
 
+    if (cacheDuration != null) {
+      netGuard.options.cacheDuration = cacheDuration;
+    }
+
+    if (maxCacheSize != null) {
+      netGuard.options.maxCacheSize = maxCacheSize;
+    }
+
+    if (encryptionFunction != null) {
+      netGuard.options.encryptionFunction = encryptionFunction;
+    }
+  }
 }

@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:dio/dio.dart';
+import 'cache_manager.dart';
 import 'netguard_options.dart';
 import 'netguard_interceptors.dart';
 
@@ -46,8 +46,6 @@ abstract class NetGuardBase {
     _dio.close(force: force);
   }
 
-  // HTTP Methods
-
   /// Convenience method to make a GET request
   Future<Response<T>> get<T>(
       String path, {
@@ -57,7 +55,8 @@ abstract class NetGuardBase {
         CancelToken? cancelToken,
         ProgressCallback? onReceiveProgress,
         bool encryptBody = false,
-      }) {
+        bool useCache = false,
+      }) async {
     String encrypted = '';
     if (encryptBody) {
       encrypted = this.options.encryptionFunction(data);
@@ -65,14 +64,40 @@ abstract class NetGuardBase {
       options.contentType = options.contentType ?? Headers.textPlainContentType;
     }
 
-    return _dio.get<T>(
-      path,
-      data: encryptBody ? encrypted :data,
-      queryParameters: queryParameters,
-      options: options,
-      cancelToken: cancelToken,
-      onReceiveProgress: onReceiveProgress,
-    );
+    // if (useCache) {
+      final cached = await CacheManager.getResponse(
+        options: this.options,
+        path: path,
+        query: queryParameters,
+      );
+      // if (cached != null) {
+        return Response<T>(
+          data: cached as T,
+          statusCode: 200,
+          requestOptions: RequestOptions(path: path),
+        );
+    //   }
+    // }
+
+    // final response = await _dio.get<T>(
+    //   path,
+    //   data: encryptBody ? encrypted : data,
+    //   queryParameters: queryParameters,
+    //   options: options,
+    //   cancelToken: cancelToken,
+    //   onReceiveProgress: onReceiveProgress,
+    // );
+    //
+    // if (useCache && response.statusCode == 200) {
+    //   await CacheManager.saveResponse(
+    //     options: this.options,
+    //     path: path,
+    //     query: queryParameters,
+    //     response: response.data,
+    //   );
+    // }
+    //
+    // return response;
   }
 
   /// Convenience method to make a GET request and return URI

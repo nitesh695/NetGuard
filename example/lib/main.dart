@@ -60,6 +60,8 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
     _netGuard.options.connectTimeout = const Duration(seconds: 10);
     _netGuard.options.receiveTimeout = const Duration(seconds: 10);
     _netGuard.options.sendTimeout = const Duration(seconds: 10);
+    _netGuard.options.cacheDuration = const Duration(seconds: 10);
+    _netGuard.options.maxCacheSize = 10;
     _netGuard.options.encryptionFunction = (body){
       final json = jsonEncode(body);
       return base64Encode(utf8.encode(json));
@@ -73,8 +75,18 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
       return client;
     };
 
+    // MANUALLY INITIALIZE CACHE (this is the key addition!)
+    // print('🔧 Initializing cache...');
+    // final cacheInitialized = await CacheManager.initialize(_netGuard.options);
+    //
+    // if (cacheInitialized) {
+    //   print('✅ Cache initialized successfully');
+    // } else {
+    //   print('❌ Cache initialization failed');
+    //   print('Debug info: ${CacheManager.getInitializationInfo()}');
+    // }
 
-
+    print("cache manager.....${CacheManager.getStats()}");
     // Add interceptors exactly as in your pattern
     _netGuard.interceptors.add(
       InterceptorsWrapper(
@@ -190,12 +202,14 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
       );
 
       // Use static method
-      final response = await NetGuard.instance.get('/users/1',encryptBody: false);
-
+      final response = await NetGuard.instance.get('/users/1',encryptBody: false,useCache: true);
+      print("response.....${response.data}");
+      print("cache manager.....${CacheManager.getStats()}");
       _addLog('📊 Static Response:');
       _addLog('   Name: ${response.data['name']}');
       _addLog('   Email: ${response.data['email']}');
       _addLog('   Website: ${response.data['website']}');
+
 
     } catch (e) {
       _addLog('💥 Static call error: $e');
@@ -217,8 +231,7 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
       _addLog('🔄 Demonstrating various HTTP methods...');
 
       // GET request
-      final getResponse = await _netGuard.get('/posts/1',encryptBody: true);
-      final getResponse1 = await _netGuard.request('/posts/1',encryptBody: true);
+      final getResponse = await _netGuard.get('/posts/1',encryptBody: true,useCache: true);
 
       _addLog('GET: Retrieved post "${getResponse.data['title']}"');
 
