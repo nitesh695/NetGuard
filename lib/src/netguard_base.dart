@@ -33,12 +33,6 @@ abstract class NetGuardBase {
     _dio = Dio(options);
     this.options = NetGuardOptions.fromBaseOptions(_dio.options);
     interceptors = NetGuardInterceptors(_dio.interceptors);
-
-    // _initializeNetworkServiceEarly();
-    // Set up the callback for when network handling is enabled
-    // this.options.setNetworkHandlingCallback(() async {
-    //   await _initializeNetworkHandling();
-    // });
   }
 
   /// Initialize NetGuard from existing Dio instance
@@ -56,7 +50,7 @@ abstract class NetGuardBase {
   /// Initialize network service immediately (non-blocking)
   void _initializeNetworkServiceEarly() {
     // Initialize network service in the background
-    NetworkService.instance.initialize(3).then((success) {
+    NetworkService.instance.initialize().then((success) {
       if (success) {
         print('🌐 Network service auto-initialized successfully');
       } else {
@@ -85,7 +79,7 @@ abstract class NetGuardBase {
       // Wait for network service to be initialized (should already be initializing)
       bool success = NetworkService.instance.isInitialized;
       if (!success) {
-        success = await NetworkService.instance.initialize(4);
+        success = await NetworkService.instance.initialize();
       }
 
       if (!success) {
@@ -159,6 +153,10 @@ abstract class NetGuardBase {
         bool encryptBody = false,
         bool useCache = false,
       }) async {
+
+    if(this.options.handleNetwork){
+      print("my network is online $isNetworkOnline");
+    }
 
     String encrypted = '';
     if (encryptBody) {

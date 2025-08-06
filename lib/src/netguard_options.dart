@@ -9,7 +9,8 @@ class NetGuardOptions {
 
   /// Default body encryption function using jsonEncode
   static String _defaultEncryptionFunction(dynamic body) {
-    return jsonEncode(body);
+    final json = jsonEncode(body);
+    return base64Encode(utf8.encode(json));
   }
 
   /// Cache duration for Hive cache expiration

@@ -43,12 +43,11 @@ class NetworkService {
   String? get initializationError => _initializationError;
 
   /// Initialize network monitoring
-  Future<bool> initialize(int data) async {
+  Future<bool> initialize() async {
     if (_isInitialized) return true;
 
     try {
       _initializationError = null;
-      print("my count....$data");
       print('🌐 Initializing NetworkService...');
 
       // Check initial connectivity

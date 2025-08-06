@@ -71,8 +71,8 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
     ///network config.......
     _netGuard.options.handleNetwork = true;
     _netGuard.options.autoRetryOnNetworkRestore = true;
-    _netGuard.options.maxNetworkRetries = 1;
-    _netGuard.options.throwOnOffline = false;
+    _netGuard.options.maxNetworkRetries = 3;
+    _netGuard.options.throwOnOffline = true;
 
     _netGuard.statusStream.listen((status) {
       // This works immediately - no manual initialization needed!
@@ -200,12 +200,6 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
 
   /// Example using static methods
   Future<void> _makeStaticApiCall() async {
-
-    await NetworkService.instance.refresh();
-    print('📊 After manual refresh: ${NetworkService.instance.getConnectionInfo()}');
-    setState(() {
-      _isLoading = true;
-    });
 
     try {
       _addLog('⚡ Making static API call...');

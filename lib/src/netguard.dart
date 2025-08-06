@@ -32,11 +32,6 @@ class NetGuard extends NetGuardBase {
   /// Default NetGuard instance for static methods
   static NetGuard? _defaultInstance;
 
-  /// Network interceptor for handling network connectivity
-  NetworkInterceptor? _networkInterceptor;
-
-  /// Whether network handling has been initialized
-  bool _networkInitialized = false;
 
   /// Create a new NetGuard instance
   NetGuard([BaseOptions? options]) : super(options) {
@@ -58,8 +53,7 @@ class NetGuard extends NetGuardBase {
 
   /// Initialize network service immediately (non-blocking)
   void _initializeNetworkServiceEarly() {
-    // Initialize network service in the background
-    NetworkService.instance.initialize(1).then((success) {
+    NetworkService.instance.initialize().then((success) {
       if (success) {
         print('🌐 Network service initialized automatically');
       } else {

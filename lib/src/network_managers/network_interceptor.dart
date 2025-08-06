@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import 'package:netguard/netguard.dart';
 
 import 'network_exception.dart';
+import 'network_service.dart';
 
 
 class NetworkInterceptor extends Interceptor {
@@ -18,7 +19,7 @@ class NetworkInterceptor extends Interceptor {
 
     // Initialize network service if not already done
     if (!_networkService.isInitialized) {
-      await _networkService.initialize(2);
+      await _networkService.initialize();
     }
 
     // Check network status
