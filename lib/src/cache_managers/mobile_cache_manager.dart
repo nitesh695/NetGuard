@@ -43,7 +43,7 @@ class CacheManagerImpl {
       // Clean expired entries on initialization
       await _clearExpired(options);
 
-      print('✅ NetGuard Cache initialized successfully at: ${cacheDir.path}');
+      print('✅ NetGuard Cache initialized successfully.');
       return true;
     } catch (e) {
       _isInitialized = false;
@@ -85,8 +85,6 @@ class CacheManagerImpl {
 
       await _box.put(key, jsonEncode(entry));
       await _enforceMaxSize(options);
-
-      print('💾 Cached response for: $path');
     } catch (e) {
       print('❌ NetGuard Cache Save Error: $e');
     }
@@ -120,7 +118,6 @@ class CacheManagerImpl {
         return null;
       }
 
-      print('🎯 Cache hit for: $path');
       return cached['data'];
     } catch (e) {
       print('❌ NetGuard Cache Get Error: $e');
@@ -155,7 +152,7 @@ class CacheManagerImpl {
         await _box.delete(entry.key);
       }
 
-      print('🧹 Cache cleanup: removed ${toRemove.length} old entries');
+      print('🧹 Cache cleanup: removed old entries');
     } catch (e) {
       print('❌ NetGuard Cache Size Enforcement Error: $e');
     }
@@ -191,7 +188,7 @@ class CacheManagerImpl {
       }
 
       if (keysToDelete.isNotEmpty) {
-        print('🗑️ Cleared ${keysToDelete.length} expired cache entries');
+        print('🗑️ Cleared expired cache entries');
       }
     } catch (e) {
       print('❌ NetGuard Cache Clear Expired Error: $e');

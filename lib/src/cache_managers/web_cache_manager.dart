@@ -61,7 +61,7 @@ class CacheManagerImpl {
       html.window.localStorage[key] = jsonEncode(entry);
       await _enforceMaxSize(options);
 
-      print('💾 Web cached response for: $path');
+      // print('💾 Web cached response for: $path');
     } catch (e) {
       print('❌ NetGuard Web Cache Save Error: $e');
     }

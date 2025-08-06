@@ -61,11 +61,26 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
     _netGuard.options.receiveTimeout = const Duration(seconds: 10);
     _netGuard.options.sendTimeout = const Duration(seconds: 10);
     _netGuard.options.cacheDuration = const Duration(seconds: 10);
+
     _netGuard.options.maxCacheSize = 10;
     _netGuard.options.encryptionFunction = (body){
       final json = jsonEncode(body);
       return base64Encode(utf8.encode(json));
     };
+
+    ///network config.......
+    _netGuard.options.handleNetwork = true;
+    _netGuard.options.autoRetryOnNetworkRestore = true;
+    _netGuard.options.maxNetworkRetries = 1;
+    _netGuard.options.throwOnOffline = false;
+
+    _netGuard.statusStream.listen((status) {
+      // This works immediately - no manual initialization needed!
+      print('🌐 Network status1111: $status');
+      // ... handle status changes
+    });
+
+    print('📊 Network info: ${_netGuard.refreshNetworkStatus()}');
 
     // Configure HTTP client adapter for certificate handling
     (_netGuard.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
@@ -111,6 +126,7 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
 
     _addLog('✅ NetGuard initialized successfully');
   }
+
 
   /// Simulate closing active loaders (as mentioned in your pattern)
   void _closeAllActiveLoaders() {
@@ -184,6 +200,9 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
 
   /// Example using static methods
   Future<void> _makeStaticApiCall() async {
+
+    await NetworkService.instance.refresh();
+    print('📊 After manual refresh: ${NetworkService.instance.getConnectionInfo()}');
     setState(() {
       _isLoading = true;
     });
@@ -220,6 +239,9 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
     }
   }
 
+  clearAllCaches()async{
+    await CacheManager.clearAll();
+  }
 
   /// Example demonstrating different HTTP methods
   Future<void> _demonstrateHttpMethods() async {

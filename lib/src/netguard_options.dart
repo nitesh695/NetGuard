@@ -18,6 +18,24 @@ class NetGuardOptions {
   /// Max cache size (number of entries)
   int? maxCacheSize;
 
+  /// Enable automatic network connectivity handling
+  bool _handleNetwork = false;
+
+  /// Automatically retry requests when network comes back online
+  bool autoRetryOnNetworkRestore = true;
+
+  /// Maximum number of auto-retry attempts
+  int maxNetworkRetries = 3;
+
+  /// Delay between retry attempts
+  Duration networkRetryDelay = const Duration(seconds: 2);
+
+  /// Throw exception when network is offline instead of waiting
+  bool throwOnOffline = false;
+
+  /// Callback to trigger network initialization
+  Future<void> Function()? _onNetworkHandlingEnabled;
+
   /// Create NetGuard options from BaseOptions
   NetGuardOptions.fromBaseOptions(
       this._baseOptions, {
@@ -70,6 +88,29 @@ class NetGuardOptions {
     this.encryptionFunction = encryptionFunction ?? _defaultEncryptionFunction;
     this.cacheDuration = cacheDuration ?? const Duration(minutes: 5);
     this.maxCacheSize = maxCacheSize ?? 100;
+  }
+
+  /// Set the callback for network handling enablement
+  void setNetworkHandlingCallback(Future<void> Function() callback) {
+    _onNetworkHandlingEnabled = callback;
+  }
+
+  /// Handle network property getter/setter
+  bool get handleNetwork => _handleNetwork;
+
+  set handleNetwork(bool value) {
+    if (value && !_handleNetwork) {
+      // Network handling is being enabled, trigger initialization asynchronously
+      _handleNetwork = value;
+      if (_onNetworkHandlingEnabled != null) {
+        // Don't await here to avoid blocking the setter
+        _onNetworkHandlingEnabled!().catchError((error) {
+          print('❌ Network handling initialization failed: $error');
+        });
+      }
+    } else {
+      _handleNetwork = value;
+    }
   }
 
   /// Base URL for requests
@@ -160,6 +201,11 @@ class NetGuardOptions {
     Duration? cacheDuration,
     int? maxCacheSize,
     String Function(dynamic body)? encryptionFunction,
+    bool? handleNetwork,
+    bool? autoRetryOnNetworkRestore,
+    int? maxNetworkRetries,
+    Duration? networkRetryDelay,
+    bool? throwOnOffline,
   }) {
     return NetGuardOptions(
       baseUrl: baseUrl ?? this.baseUrl,
@@ -181,7 +227,11 @@ class NetGuardOptions {
       encryptionFunction: encryptionFunction ?? this.encryptionFunction,
       cacheDuration: cacheDuration ?? this.cacheDuration,
       maxCacheSize: maxCacheSize ?? this.maxCacheSize,
-    );
+    )..handleNetwork = handleNetwork ?? this.handleNetwork
+      ..autoRetryOnNetworkRestore = autoRetryOnNetworkRestore ?? this.autoRetryOnNetworkRestore
+      ..maxNetworkRetries = maxNetworkRetries ?? this.maxNetworkRetries
+      ..networkRetryDelay = networkRetryDelay ?? this.networkRetryDelay
+      ..throwOnOffline = throwOnOffline ?? this.throwOnOffline;
   }
 
   @override

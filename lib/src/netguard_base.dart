@@ -3,6 +3,8 @@ import 'package:dio/dio.dart';
 import 'cache_manager.dart';
 import 'netguard_options.dart';
 import 'netguard_interceptors.dart';
+import 'network_managers/network_interceptor.dart';
+import 'network_managers/network_service.dart';
 
 /// Base class for NetGuard that provides all Dio functionality
 abstract class NetGuardBase {
@@ -14,6 +16,8 @@ abstract class NetGuardBase {
 
   /// Interceptors for NetGuard
   late NetGuardInterceptors interceptors;
+  bool _networkInterceptorAdded = false;
+  bool _networkInitialized = false;
 
   /// HTTP client adapter
   HttpClientAdapter get httpClientAdapter => _dio.httpClientAdapter;
@@ -29,6 +33,12 @@ abstract class NetGuardBase {
     _dio = Dio(options);
     this.options = NetGuardOptions.fromBaseOptions(_dio.options);
     interceptors = NetGuardInterceptors(_dio.interceptors);
+
+    // _initializeNetworkServiceEarly();
+    // Set up the callback for when network handling is enabled
+    // this.options.setNetworkHandlingCallback(() async {
+    //   await _initializeNetworkHandling();
+    // });
   }
 
   /// Initialize NetGuard from existing Dio instance
@@ -36,6 +46,25 @@ abstract class NetGuardBase {
     _dio = dio;
     options = NetGuardOptions.fromBaseOptions(_dio.options);
     interceptors = NetGuardInterceptors(_dio.interceptors);
+
+    // Set up the callback for when network handling is enabled
+    options.setNetworkHandlingCallback(() async {
+      await _initializeNetworkHandling();
+    });
+  }
+
+  /// Initialize network service immediately (non-blocking)
+  void _initializeNetworkServiceEarly() {
+    // Initialize network service in the background
+    NetworkService.instance.initialize(3).then((success) {
+      if (success) {
+        print('🌐 Network service auto-initialized successfully');
+      } else {
+        print('❌ Network service auto-initialization failed: ${NetworkService.instance.initializationError}');
+      }
+    }).catchError((error) {
+      print('❌ Network service auto-initialization error: $error');
+    });
   }
 
   /// Get the underlying Dio instance
@@ -44,6 +73,79 @@ abstract class NetGuardBase {
   /// Close the NetGuard instance and clean up resources
   void close({bool force = false}) {
     _dio.close(force: force);
+  }
+
+  /// Initialize network handling if enabled
+  Future<void> _initializeNetworkHandling() async {
+    if (!options.handleNetwork || _networkInitialized) return;
+
+    print('🌐 Initializing network handling...');
+
+    try {
+      // Wait for network service to be initialized (should already be initializing)
+      bool success = NetworkService.instance.isInitialized;
+      if (!success) {
+        success = await NetworkService.instance.initialize(4);
+      }
+
+      if (!success) {
+        print('❌ Network service initialization failed: ${NetworkService.instance.initializationError}');
+        return;
+      }
+
+      // Add network interceptor if not already added
+      if (!_networkInterceptorAdded) {
+        _dio.interceptors.insert(0, NetworkInterceptor()); // Insert at beginning for priority
+        _networkInterceptorAdded = true;
+        print('📡 Network interceptor added');
+      }
+
+      _networkInitialized = true;
+      print('✅ Network handling initialized successfully');
+    } catch (e) {
+      print('❌ Network handling initialization failed: $e');
+    }
+  }
+
+  /// Add network extras to options for all requests
+  Options _addNetworkExtras(Options? options) {
+    final extras = <String, dynamic>{
+      'handleNetwork': this.options.handleNetwork,
+      'autoRetryOnNetworkRestore': this.options.autoRetryOnNetworkRestore,
+      'maxNetworkRetries': this.options.maxNetworkRetries,
+      'throwOnOffline': this.options.throwOnOffline,
+    };
+
+    if (options == null) {
+      return Options(extra: extras);
+    }
+
+    return options.copyWith(
+      extra: {...options.extra ?? {}, ...extras},
+    );
+  }
+
+  /// Get current network status
+  NetworkStatus get networkStatus => NetworkService.instance.currentStatus;
+
+  /// Check if network is online
+  bool get isNetworkOnline => NetworkService.instance.isOnline;
+
+  /// Check if currently online (alias for consistency)
+  bool get isOnline => NetworkService.instance.isOnline;
+
+  /// Check if currently offline
+  bool get isOffline => NetworkService.instance.isOffline;
+
+  /// Get network connection info
+  Map<String, dynamic> get networkInfo => NetworkService.instance.getConnectionInfo();
+
+  /// Stream of network status changes - Available immediately without manual initialization
+  Stream<NetworkStatus> get statusStream => NetworkService.instance.statusStream;
+
+  /// Manually refresh network status
+  Future<void> refreshNetworkStatus() async {
+    await NetworkService.instance.refresh();
   }
 
   /// Convenience method to make a GET request
@@ -57,6 +159,7 @@ abstract class NetGuardBase {
         bool encryptBody = false,
         bool useCache = false,
       }) async {
+
     String encrypted = '';
     if (encryptBody) {
       encrypted = this.options.encryptionFunction(data);
@@ -64,40 +167,68 @@ abstract class NetGuardBase {
       options.contentType = options.contentType ?? Headers.textPlainContentType;
     }
 
-    // if (useCache) {
+    // Add network extras to options
+    options = _addNetworkExtras(options);
+
+    if (useCache) {
       final cached = await CacheManager.getResponse(
         options: this.options,
         path: path,
         query: queryParameters,
       );
-      // if (cached != null) {
+
+      // Start background fetch (non-blocking)
+      unawaited(() async {
+        try {
+          final newResponse = await _dio.get<T>(
+            path,
+            data: encryptBody ? encrypted : data,
+            queryParameters: queryParameters,
+            options: options,
+            cancelToken: cancelToken,
+            onReceiveProgress: onReceiveProgress,
+          );
+          if (newResponse.statusCode == 200) {
+            await CacheManager.saveResponse(
+              options: this.options,
+              path: path,
+              query: queryParameters,
+              response: newResponse.data,
+            );
+          }
+        } catch (e) {
+          print("fetch error $e");
+        }
+      }());
+
+      if (cached != null) {
         return Response<T>(
           data: cached as T,
           statusCode: 200,
           requestOptions: RequestOptions(path: path),
         );
-    //   }
-    // }
+      }
+    }
 
-    // final response = await _dio.get<T>(
-    //   path,
-    //   data: encryptBody ? encrypted : data,
-    //   queryParameters: queryParameters,
-    //   options: options,
-    //   cancelToken: cancelToken,
-    //   onReceiveProgress: onReceiveProgress,
-    // );
-    //
-    // if (useCache && response.statusCode == 200) {
-    //   await CacheManager.saveResponse(
-    //     options: this.options,
-    //     path: path,
-    //     query: queryParameters,
-    //     response: response.data,
-    //   );
-    // }
-    //
-    // return response;
+    final response = await _dio.get<T>(
+      path,
+      data: encryptBody ? encrypted : data,
+      queryParameters: queryParameters,
+      options: options,
+      cancelToken: cancelToken,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    if (useCache && response.statusCode == 200) {
+      await CacheManager.saveResponse(
+        options: this.options,
+        path: path,
+        query: queryParameters,
+        response: response.data,
+      );
+    }
+
+    return response;
   }
 
   /// Convenience method to make a GET request and return URI
@@ -120,7 +251,7 @@ abstract class NetGuardBase {
         ProgressCallback? onSendProgress,
         ProgressCallback? onReceiveProgress,
         bool encryptBody = false,
-      }) {
+      }) async {
 
     String encrypted = '';
     if (encryptBody) {
@@ -129,9 +260,12 @@ abstract class NetGuardBase {
       options.contentType = options.contentType ?? Headers.textPlainContentType;
     }
 
+    // Add network extras to options
+    options = _addNetworkExtras(options);
+
     return _dio.post<T>(
       path,
-      data: encryptBody ? encrypted :data,
+      data: encryptBody ? encrypted : data,
       queryParameters: queryParameters,
       options: options,
       cancelToken: cancelToken,
@@ -150,16 +284,22 @@ abstract class NetGuardBase {
         ProgressCallback? onSendProgress,
         ProgressCallback? onReceiveProgress,
         bool encryptBody = false,
-      }) {
+      }) async {
+
+
     String encrypted = '';
     if (encryptBody) {
       encrypted = this.options.encryptionFunction(data);
       options ??= Options();
       options.contentType = options.contentType ?? Headers.textPlainContentType;
     }
+
+    // Add network extras to options
+    options = _addNetworkExtras(options);
+
     return _dio.put<T>(
       path,
-      data: encryptBody ? encrypted :data,
+      data: encryptBody ? encrypted : data,
       queryParameters: queryParameters,
       options: options,
       cancelToken: cancelToken,
@@ -178,16 +318,21 @@ abstract class NetGuardBase {
         ProgressCallback? onSendProgress,
         ProgressCallback? onReceiveProgress,
         bool encryptBody = false,
-      }) {
+      }) async {
+
     String encrypted = '';
     if (encryptBody) {
       encrypted = this.options.encryptionFunction(data);
       options ??= Options();
       options.contentType = options.contentType ?? Headers.textPlainContentType;
     }
+
+    // Add network extras to options
+    options = _addNetworkExtras(options);
+
     return _dio.patch<T>(
       path,
-      data: encryptBody ? encrypted :data,
+      data: encryptBody ? encrypted : data,
       queryParameters: queryParameters,
       options: options,
       cancelToken: cancelToken,
@@ -204,16 +349,21 @@ abstract class NetGuardBase {
         Options? options,
         CancelToken? cancelToken,
         bool encryptBody = false,
-      }) {
-     String encrypted ='';
+      }) async {
+
+    String encrypted = '';
     if (encryptBody) {
       encrypted = this.options.encryptionFunction(data);
       options ??= Options();
       options.contentType = options.contentType ?? Headers.textPlainContentType;
     }
+
+    // Add network extras to options
+    options = _addNetworkExtras(options);
+
     return _dio.delete<T>(
       path,
-      data: encryptBody ? encrypted :data,
+      data: encryptBody ? encrypted : data,
       queryParameters: queryParameters,
       options: options,
       cancelToken: cancelToken,
@@ -228,16 +378,21 @@ abstract class NetGuardBase {
         Options? options,
         CancelToken? cancelToken,
         bool encryptBody = false,
-      }) {
+      }) async {
+
     String encrypted = '';
     if (encryptBody) {
       encrypted = this.options.encryptionFunction(data);
       options ??= Options();
       options.contentType = options.contentType ?? Headers.textPlainContentType;
     }
+
+    // Add network extras to options
+    options = _addNetworkExtras(options);
+
     return _dio.head<T>(
       path,
-      data: encryptBody ? encrypted :data,
+      data: encryptBody ? encrypted : data,
       queryParameters: queryParameters,
       options: options,
       cancelToken: cancelToken,
@@ -254,22 +409,93 @@ abstract class NetGuardBase {
         ProgressCallback? onSendProgress,
         ProgressCallback? onReceiveProgress,
         bool encryptBody = false,
-      }) {
+        bool useCache = false,
+      }) async {
+
+    final method = (options?.method ?? 'get').toLowerCase();
+
+    // Add network extras to options
+    options = _addNetworkExtras(options);
+
+    // Cache support only for GET
+    if (method == 'get' && useCache) {
+      final cached = await CacheManager.getResponse(
+        options: this.options,
+        path: path,
+        query: queryParameters,
+      );
+
+      // Start background refresh
+      unawaited(() async {
+        try {
+          String encrypted = '';
+          if (encryptBody) {
+            encrypted = this.options.encryptionFunction(data);
+          }
+
+          final freshResponse = await _dio.request<T>(
+            path,
+            data: encryptBody ? encrypted : data,
+            queryParameters: queryParameters,
+            cancelToken: cancelToken,
+            options: options,
+            onSendProgress: onSendProgress,
+            onReceiveProgress: onReceiveProgress,
+          );
+
+          if (freshResponse.statusCode == 200) {
+            await CacheManager.saveResponse(
+              options: this.options,
+              path: path,
+              query: queryParameters,
+              response: freshResponse.data,
+            );
+          }
+        } catch (_) {
+          // silently fail
+        }
+      }());
+
+      // Return cached immediately if available
+      if (cached != null) {
+        return Response<T>(
+          data: cached as T,
+          statusCode: 200,
+          requestOptions: RequestOptions(path: path),
+        );
+      }
+    }
+
+    // Encrypt if required
     String encrypted = '';
     if (encryptBody) {
       encrypted = this.options.encryptionFunction(data);
       options ??= Options();
       options.contentType = options.contentType ?? Headers.textPlainContentType;
     }
-    return _dio.request<T>(
+
+    // Perform actual request
+    final response = await _dio.request<T>(
       path,
-      data: encryptBody ? encrypted :data,
+      data: encryptBody ? encrypted : data,
       queryParameters: queryParameters,
       cancelToken: cancelToken,
       options: options,
       onSendProgress: onSendProgress,
       onReceiveProgress: onReceiveProgress,
     );
+
+    // Save fresh response to cache if it's GET
+    if (method == 'get' && useCache && response.statusCode == 200) {
+      await CacheManager.saveResponse(
+        options: this.options,
+        path: path,
+        query: queryParameters,
+        response: response.data,
+      );
+    }
+
+    return response;
   }
 
   /// Make HTTP request with URI
@@ -281,16 +507,21 @@ abstract class NetGuardBase {
         ProgressCallback? onSendProgress,
         ProgressCallback? onReceiveProgress,
         bool encryptBody = false,
-      }) {
+      }) async {
+
     String encrypted = '';
     if (encryptBody) {
       encrypted = this.options.encryptionFunction(data);
       options ??= Options();
       options.contentType = options.contentType ?? Headers.textPlainContentType;
     }
+
+    // Add network extras to options
+    options = _addNetworkExtras(options);
+
     return _dio.requestUri<T>(
       uri,
-      data: encryptBody ? encrypted :data,
+      data: encryptBody ? encrypted : data,
       cancelToken: cancelToken,
       options: options,
       onSendProgress: onSendProgress,
@@ -310,13 +541,19 @@ abstract class NetGuardBase {
         Object? data,
         Options? options,
         bool encryptBody = false,
-      }) {
+      }) async {
+
+
     String encrypted = '';
     if (encryptBody) {
       encrypted = this.options.encryptionFunction(data);
       options ??= Options();
       options.contentType = options.contentType ?? Headers.textPlainContentType;
     }
+
+    // Add network extras to options
+    options = _addNetworkExtras(options);
+
     return _dio.download(
       urlPath,
       savePath,
@@ -325,7 +562,7 @@ abstract class NetGuardBase {
       cancelToken: cancelToken,
       deleteOnError: deleteOnError,
       lengthHeader: lengthHeader,
-      data: encryptBody ? encrypted :data,
+      data: encryptBody ? encrypted : data,
       options: options,
     );
   }
@@ -341,13 +578,19 @@ abstract class NetGuardBase {
         Object? data,
         Options? options,
         bool encryptBody = false,
-      }) {
+      }) async {
+
+
     String encrypted = '';
     if (encryptBody) {
       encrypted = this.options.encryptionFunction(data);
       options ??= Options();
       options.contentType = options.contentType ?? Headers.textPlainContentType;
     }
+
+    // Add network extras to options
+    options = _addNetworkExtras(options);
+
     return _dio.downloadUri(
       uri,
       savePath,
@@ -355,7 +598,7 @@ abstract class NetGuardBase {
       cancelToken: cancelToken,
       deleteOnError: deleteOnError,
       lengthHeader: lengthHeader,
-      data: encryptBody ? encrypted :data,
+      data: encryptBody ? encrypted : data,
       options: options,
     );
   }
