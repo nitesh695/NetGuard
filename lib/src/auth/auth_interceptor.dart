@@ -102,10 +102,87 @@ class AuthInterceptor extends QueuedInterceptor {
   }
 
   @override
-  void onResponse(Response response, ResponseInterceptorHandler handler) {
+  void onResponse(Response response, ResponseInterceptorHandler handler) async {
     _log('✅ Response received: ${response.statusCode} for ${response.requestOptions.path}');
+
+    // If status is 401 and auto-refresh is enabled, attempt recovery
+    if (response.statusCode == 401 && _config.autoRefresh) {
+      await _handleUnauthorized(response.requestOptions, handler);
+      return;
+    }
+
     handler.next(response);
   }
+
+  Future<void> _handleUnauthorized(RequestOptions requestOptions, ResponseInterceptorHandler handler) async {
+    _log('🔄 401 Unauthorized detected, attempting automatic token refresh...');
+
+    final currentToken = await _callbacks.getToken();
+
+    if (currentToken == null || currentToken.isEmpty) {
+      _log('❌ No token available for refresh, triggering logout...');
+      await _triggerLogout(handler, requestOptions);
+      return;
+    }
+
+    if (_isRefreshing) {
+      _log('⏳ Token refresh in progress, queuing request...');
+      _queueAuthRequest(requestOptions, handler as ErrorInterceptorHandler);
+      return;
+    }
+
+    final refreshResult = await _attemptTokenRefresh();
+
+    if (refreshResult.success && refreshResult.token != null) {
+      _log('✅ Automatic token refresh successful, retrying original request...');
+      await _retryRequestWithNewToken(refreshResult.token!, requestOptions, handler);
+    } else {
+      _log('❌ Automatic token refresh failed, triggering logout...');
+      await _triggerLogout(handler, requestOptions);
+    }
+  }
+
+  Future<void> _triggerLogout(ResponseInterceptorHandler handler, RequestOptions requestOptions) async {
+    try {
+      await _callbacks.onLogout();
+    } catch (logoutError) {
+      _log('❌ Logout callback failed: $logoutError');
+    }
+    handler.next(DioException(
+      requestOptions: requestOptions,
+      error: 'Unauthorized and logout triggered',
+      type: DioExceptionType.badResponse,
+      response: Response(requestOptions: requestOptions, statusCode: 401),
+    ) as Response);
+  }
+
+  Future<void> _retryRequestWithNewToken(
+      String newToken,
+      RequestOptions originalRequest,
+      ResponseInterceptorHandler handler,
+      ) async
+  {
+    originalRequest.headers[_config.tokenHeaderName] = '${_config.tokenPrefix}$newToken';
+
+    try {
+      final dio = Dio();
+      final response = await dio.fetch(originalRequest);
+      _log('✅ Original request retry successful after automatic refresh');
+      handler.resolve(response);
+    } catch (retryError) {
+      _log('❌ Original request retry failed after refresh: $retryError');
+      if (retryError is DioException) {
+        handler.next(retryError as Response);
+      } else {
+        handler.next(DioException(
+          requestOptions: originalRequest,
+          error: retryError,
+          type: DioExceptionType.unknown,
+        ) as Response);
+      }
+    }
+  }
+
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) async {

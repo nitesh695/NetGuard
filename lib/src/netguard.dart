@@ -83,7 +83,8 @@ class NetGuard extends NetGuardBase {
   Future<void> updateAuthTokens({
     required String accessToken,
     String? refreshToken,
-  }) async {
+  }) async
+  {
     if (!_authManager.isConfigured) {
       print('❌ Auth not configured, cannot update tokens');
       return;
