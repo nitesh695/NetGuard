@@ -46,14 +46,33 @@ abstract class AuthCallbacks {
   Future<void> onLogout();
 }
 
+/// Internal class to hold pending auth request information
+class _PendingAuthRequest {
+  final RequestOptions options;
+  final ErrorInterceptorHandler handler;
+  final Completer<Response> completer;
+  final DateTime timestamp;
+
+  _PendingAuthRequest(this.options, this.handler, this.completer)
+      : timestamp = DateTime.now();
+}
+
+/// Internal class to hold refresh result
+class _RefreshResult {
+  final bool success;
+  final String? token;
+
+  _RefreshResult({required this.success, this.token});
+}
+
 /// Authentication interceptor for NetGuard with improved queue management
 class AuthInterceptor extends QueuedInterceptor {
   final AuthCallbacks _callbacks;
   final AuthConfig _config;
 
   bool _isRefreshing = false;
-  final List<_PendingRequest> _pendingRequests = [];
-  final Completer<String?> _refreshCompleter = Completer<String?>();
+  final List<_PendingAuthRequest> _pendingAuthRequests = [];
+  Completer<String?>? _refreshCompleter;
 
   AuthInterceptor({
     required AuthCallbacks callbacks,
@@ -99,14 +118,14 @@ class AuthInterceptor extends QueuedInterceptor {
       // If already refreshing, queue this request
       if (_isRefreshing) {
         _log('⏳ Token refresh in progress, queuing request...');
-        _queueRequest(err.requestOptions, handler);
+        _queueAuthRequest(err.requestOptions, handler);
         return;
       }
 
       // Attempt token refresh
       final refreshResult = await _attemptTokenRefresh();
 
-      if (refreshResult.success) {
+      if (refreshResult.success && refreshResult.token != null) {
         _log('✅ Token refresh successful, retrying original request...');
 
         // Update the original request with new token
@@ -150,9 +169,9 @@ class AuthInterceptor extends QueuedInterceptor {
   }
 
   /// Queue a request while token refresh is in progress
-  void _queueRequest(RequestOptions options, ErrorInterceptorHandler handler) {
+  void _queueAuthRequest(RequestOptions options, ErrorInterceptorHandler handler) {
     final completer = Completer<Response>();
-    _pendingRequests.add(_PendingRequest(options, handler, completer));
+    _pendingAuthRequests.add(_PendingAuthRequest(options, handler, completer));
 
     // Wait for the refresh to complete, then handle the queued request
     completer.future.then((response) {
@@ -171,18 +190,21 @@ class AuthInterceptor extends QueuedInterceptor {
   }
 
   /// Attempt to refresh the token with improved queue handling
+  /// This ensures onRefreshToken is called only once, even with multiple 401s
   Future<_RefreshResult> _attemptTokenRefresh() async {
+    // If already refreshing, wait for the ongoing refresh
     if (_isRefreshing) {
-      // Wait for ongoing refresh using the completer
       try {
-        final token = await _refreshCompleter.future;
+        final token = await _refreshCompleter?.future;
         return _RefreshResult(success: token != null, token: token);
       } catch (e) {
         return _RefreshResult(success: false);
       }
     }
 
+    // Start the refresh process
     _isRefreshing = true;
+    _refreshCompleter = Completer<String?>();
     _log('🔄 Starting token refresh process...');
 
     try {
@@ -194,6 +216,7 @@ class AuthInterceptor extends QueuedInterceptor {
         _log('🔄 Token refresh attempt $attempts/${_config.maxRetryAttempts}');
 
         try {
+          // This is where onRefreshToken is called - only once per refresh cycle
           newToken = await _callbacks.refreshToken();
           if (newToken != null && newToken.isNotEmpty) {
             _log('✅ Token refresh successful on attempt $attempts');
@@ -220,49 +243,50 @@ class AuthInterceptor extends QueuedInterceptor {
         }
 
         // Complete the refresh completer with success
-        if (!_refreshCompleter.isCompleted) {
-          _refreshCompleter.complete(newToken);
+        if (!_refreshCompleter!.isCompleted) {
+          _refreshCompleter!.complete(newToken);
         }
 
         // Process any queued requests
-        await _processQueuedRequests(newToken);
+        await _processQueuedAuthRequests(newToken);
 
         return _RefreshResult(success: true, token: newToken);
       } else {
         _log('❌ Token refresh failed after all attempts');
 
         // Complete the refresh completer with failure
-        if (!_refreshCompleter.isCompleted) {
-          _refreshCompleter.complete(null);
+        if (!_refreshCompleter!.isCompleted) {
+          _refreshCompleter!.complete(null);
         }
 
-        _clearQueuedRequests();
+        _clearQueuedAuthRequests();
         return _RefreshResult(success: false);
       }
     } catch (e) {
       _log('❌ Unexpected error during token refresh: $e');
 
       // Complete the refresh completer with error
-      if (!_refreshCompleter.isCompleted) {
-        _refreshCompleter.completeError(e);
+      if (!_refreshCompleter!.isCompleted) {
+        _refreshCompleter!.completeError(e);
       }
 
-      _clearQueuedRequests();
+      _clearQueuedAuthRequests();
       return _RefreshResult(success: false);
     } finally {
       _isRefreshing = false;
+      _refreshCompleter = null;
       _log('🔄 Token refresh process completed');
     }
   }
 
-  /// Process all queued requests with the new token
-  Future<void> _processQueuedRequests(String newToken) async {
-    if (_pendingRequests.isEmpty) return;
+  /// Process all queued auth requests with the new token
+  Future<void> _processQueuedAuthRequests(String newToken) async {
+    if (_pendingAuthRequests.isEmpty) return;
 
-    _log('📋 Processing ${_pendingRequests.length} queued requests...');
+    _log('📋 Processing ${_pendingAuthRequests.length} queued auth requests...');
 
-    final requestsCopy = List<_PendingRequest>.from(_pendingRequests);
-    _pendingRequests.clear();
+    final requestsCopy = List<_PendingAuthRequest>.from(_pendingAuthRequests);
+    _pendingAuthRequests.clear();
 
     for (final pendingRequest in requestsCopy) {
       try {
@@ -274,10 +298,10 @@ class AuthInterceptor extends QueuedInterceptor {
         final dio = Dio();
         final response = await dio.fetch(pendingRequest.options);
 
-        _log('✅ Queued request completed successfully: ${pendingRequest.options.path}');
+        _log('✅ Queued auth request completed successfully: ${pendingRequest.options.path}');
         pendingRequest.completer.complete(response);
       } catch (e) {
-        _log('❌ Queued request failed: ${pendingRequest.options.path} - $e');
+        _log('❌ Queued auth request failed: ${pendingRequest.options.path} - $e');
         if (e is DioException) {
           pendingRequest.completer.completeError(e);
         } else {
@@ -290,14 +314,14 @@ class AuthInterceptor extends QueuedInterceptor {
       }
     }
 
-    _log('✅ All queued requests processed');
+    _log('✅ All queued auth requests processed');
   }
 
-  /// Clear all queued requests (called when refresh fails)
-  void _clearQueuedRequests() {
-    _log('🗑️ Clearing ${_pendingRequests.length} queued requests due to refresh failure');
+  /// Clear all queued auth requests (called when refresh fails)
+  void _clearQueuedAuthRequests() {
+    _log('🗑️ Clearing ${_pendingAuthRequests.length} queued auth requests due to refresh failure');
 
-    for (final pendingRequest in _pendingRequests) {
+    for (final pendingRequest in _pendingAuthRequests) {
       pendingRequest.completer.completeError(DioException(
         requestOptions: pendingRequest.options,
         error: 'Token refresh failed',
@@ -310,7 +334,7 @@ class AuthInterceptor extends QueuedInterceptor {
       ));
     }
 
-    _pendingRequests.clear();
+    _pendingAuthRequests.clear();
   }
 
   /// Log message if logging is enabled
@@ -320,37 +344,17 @@ class AuthInterceptor extends QueuedInterceptor {
     }
   }
 
-  /// Get number of queued requests (useful for debugging)
-  int get queuedRequestsCount => _pendingRequests.length;
+  /// Get number of queued auth requests (useful for debugging)
+  int get queuedRequestsCount => _pendingAuthRequests.length;
 
   /// Check if token refresh is currently in progress
   bool get isRefreshing => _isRefreshing;
 
   /// Clear any pending state (useful for testing or cleanup)
   void clear() {
-    _clearQueuedRequests();
+    _clearQueuedAuthRequests();
     _isRefreshing = false;
-    if (!_refreshCompleter.isCompleted) {
-      _refreshCompleter.complete(null);
-    }
+    _refreshCompleter?.complete(null);
+    _refreshCompleter = null;
   }
-}
-
-/// Internal class to hold pending request information
-class _PendingRequest {
-  final RequestOptions options;
-  final ErrorInterceptorHandler handler;
-  final Completer<Response> completer;
-  final DateTime timestamp;
-
-  _PendingRequest(this.options, this.handler, this.completer)
-      : timestamp = DateTime.now();
-}
-
-/// Internal class to hold refresh result
-class _RefreshResult {
-  final bool success;
-  final String? token;
-
-  _RefreshResult({required this.success, this.token});
 }

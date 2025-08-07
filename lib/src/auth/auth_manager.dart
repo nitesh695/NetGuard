@@ -1,5 +1,4 @@
 import '../../netguard.dart';
-import 'auth_interceptor.dart';
 
 /// Authentication manager for NetGuard
 class AuthManager {

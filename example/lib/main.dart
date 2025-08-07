@@ -84,6 +84,7 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
       ),
     );
 
+    await _netGuard.testAuthFlow();
     ///network config.......
     _netGuard.options.handleNetwork = true;
     _netGuard.options.autoRetryOnNetworkRestore = true;
