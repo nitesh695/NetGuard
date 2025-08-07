@@ -92,6 +92,11 @@ class NetGuardOptions {
     String Function(dynamic body)? encryptionFunction,
     Duration? cacheDuration,
     int? maxCacheSize,
+    bool? handleNetwork,
+    bool? autoRetryOnNetworkRestore,
+    int? maxNetworkRetries,
+    Duration? networkRetryDelay,
+    bool? throwOnOffline,
   }) {
     _baseOptions = BaseOptions(
       baseUrl: baseUrl ?? '',
@@ -111,7 +116,11 @@ class NetGuardOptions {
       listFormat: listFormat,
       persistentConnection: persistentConnection,
     );
-
+    this.handleNetwork = handleNetwork ?? false;
+    this.autoRetryOnNetworkRestore = autoRetryOnNetworkRestore  ?? false;
+    this.maxNetworkRetries = maxNetworkRetries ?? 1;
+    this.networkRetryDelay = networkRetryDelay ?? const Duration(milliseconds: 500);
+    this.throwOnOffline = throwOnOffline  ?? false;
     this.encryptionFunction = encryptionFunction ?? _defaultEncryptionFunction;
     this.cacheDuration = cacheDuration ?? const Duration(minutes: 5);
     this.maxCacheSize = maxCacheSize ?? 100;
@@ -254,11 +263,12 @@ class NetGuardOptions {
       encryptionFunction: encryptionFunction ?? this.encryptionFunction,
       cacheDuration: cacheDuration ?? this.cacheDuration,
       maxCacheSize: maxCacheSize ?? this.maxCacheSize,
-    )..handleNetwork = handleNetwork ?? this.handleNetwork
-      ..autoRetryOnNetworkRestore = autoRetryOnNetworkRestore ?? this.autoRetryOnNetworkRestore
-      ..maxNetworkRetries = maxNetworkRetries ?? this.maxNetworkRetries
-      ..networkRetryDelay = networkRetryDelay ?? this.networkRetryDelay
-      ..throwOnOffline = throwOnOffline ?? this.throwOnOffline;
+        handleNetwork : handleNetwork ?? this.handleNetwork,
+        autoRetryOnNetworkRestore : autoRetryOnNetworkRestore ?? this.autoRetryOnNetworkRestore,
+        maxNetworkRetries : maxNetworkRetries ?? this.maxNetworkRetries,
+        networkRetryDelay : networkRetryDelay ?? this.networkRetryDelay,
+        throwOnOffline : throwOnOffline ?? this.throwOnOffline
+    );
   }
 
   @override

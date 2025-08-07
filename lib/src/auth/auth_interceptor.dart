@@ -69,6 +69,7 @@ class _RefreshResult {
 class AuthInterceptor extends QueuedInterceptor {
   final AuthCallbacks _callbacks;
   final AuthConfig _config;
+  late final Dio _dio; // Use a single Dio instance
 
   bool _isRefreshing = false;
   final List<_PendingAuthRequest> _pendingAuthRequests = [];
@@ -77,7 +78,12 @@ class AuthInterceptor extends QueuedInterceptor {
   AuthInterceptor({
     required AuthCallbacks callbacks,
     AuthConfig config = const AuthConfig(),
-  }) : _callbacks = callbacks, _config = config;
+    Dio? dio, // Optional Dio instance
+  }) : _callbacks = callbacks,
+        _config = config {
+    // Use provided Dio instance or create a new one
+    _dio = dio ?? Dio();
+  }
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
@@ -108,27 +114,45 @@ class AuthInterceptor extends QueuedInterceptor {
     // If status is 401 and auto-refresh is enabled, attempt recovery
     final skipAuthRefresh = response.requestOptions.extra['isRefresh'] == true;
     if (response.statusCode == 401 && _config.autoRefresh && !skipAuthRefresh) {
-      await _handleUnauthorized(response.requestOptions, handler);
+      await _handleUnauthorizedResponse(response, handler);
       return;
     }
 
     handler.next(response);
   }
 
-  Future<void> _handleUnauthorized(RequestOptions requestOptions, ResponseInterceptorHandler handler) async {
-    _log('🔄 401 Unauthorized detected, attempting automatic token refresh...');
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) async {
+    _log('⚠️ Error intercepted: ${err.response?.statusCode} for ${err.requestOptions.path}');
+
+    // Check if this is a 401 Unauthorized error and auto refresh is enabled
+    final skipAuthRefresh = err.requestOptions.extra['isRefresh'] == true;
+    if (err.response?.statusCode == 401 && _config.autoRefresh && !skipAuthRefresh) {
+      await _handleUnauthorizedError(err, handler);
+      return;
+    }
+
+    // For non-401 errors or when refresh is disabled/failed
+    handler.next(err);
+  }
+
+  /// Handle unauthorized response (401 from onResponse)
+  Future<void> _handleUnauthorizedResponse(
+      Response response,
+      ResponseInterceptorHandler handler
+      ) async {
+    _log('🔄 401 Unauthorized detected in response, attempting automatic token refresh...');
 
     final currentToken = await _callbacks.getToken();
-
     if (currentToken == null || currentToken.isEmpty) {
       _log('❌ No token available for refresh, triggering logout...');
-      await _triggerLogout(handler, requestOptions);
+      await _triggerLogoutForResponse(handler, response.requestOptions);
       return;
     }
 
     if (_isRefreshing) {
       _log('⏳ Token refresh in progress, queuing request...');
-      _queueAuthRequest(requestOptions, handler as ErrorInterceptorHandler);
+      await _queueResponseRequest(response.requestOptions, handler);
       return;
     }
 
@@ -136,131 +160,197 @@ class AuthInterceptor extends QueuedInterceptor {
 
     if (refreshResult.success && refreshResult.token != null) {
       _log('✅ Automatic token refresh successful, retrying original request...');
-      await _retryRequestWithNewToken(refreshResult.token!, requestOptions, handler);
+      await _retryRequestFromResponse(refreshResult.token!, response.requestOptions, handler);
     } else {
       _log('❌ Automatic token refresh failed, triggering logout...');
-      await _triggerLogout(handler, requestOptions);
+      await _triggerLogoutForResponse(handler, response.requestOptions);
     }
   }
 
-  Future<void> _triggerLogout(ResponseInterceptorHandler handler, RequestOptions requestOptions) async {
+  /// Handle unauthorized error (401 from onError)
+  Future<void> _handleUnauthorizedError(
+      DioException err,
+      ErrorInterceptorHandler handler
+      ) async {
+    _log('🔄 401 Unauthorized detected in error, attempting automatic token refresh...');
+
+    final currentToken = await _callbacks.getToken();
+    if (currentToken == null || currentToken.isEmpty) {
+      _log('❌ No token available for refresh, triggering logout...');
+      await _triggerLogoutForError(handler, err);
+      return;
+    }
+
+    if (_isRefreshing) {
+      _log('⏳ Token refresh in progress, queuing request...');
+      _queueErrorRequest(err.requestOptions, handler);
+      return;
+    }
+
+    final refreshResult = await _attemptTokenRefresh();
+
+    if (refreshResult.success && refreshResult.token != null) {
+      _log('✅ Automatic token refresh successful, retrying original request...');
+      await _retryRequestFromError(refreshResult.token!, err, handler);
+    } else {
+      _log('❌ Automatic token refresh failed, triggering logout...');
+      await _triggerLogoutForError(handler, err);
+    }
+  }
+
+  /// Trigger logout for response handler
+  Future<void> _triggerLogoutForResponse(
+      ResponseInterceptorHandler handler,
+      RequestOptions requestOptions
+      ) async {
     try {
       await _callbacks.onLogout();
     } catch (logoutError) {
       _log('❌ Logout callback failed: $logoutError');
     }
-    handler.next(DioException(
+
+    // Create a proper error response
+    final error = DioException(
       requestOptions: requestOptions,
       error: 'Unauthorized and logout triggered',
       type: DioExceptionType.badResponse,
-      response: Response(requestOptions: requestOptions, statusCode: 401),
-    ) as Response);
+      response: Response(
+        requestOptions: requestOptions,
+        statusCode: 401,
+        statusMessage: 'Unauthorized',
+      ),
+    );
+    handler.reject(error);
   }
 
-  Future<void> _retryRequestWithNewToken(
+  /// Trigger logout for error handler
+  Future<void> _triggerLogoutForError(
+      ErrorInterceptorHandler handler,
+      DioException originalError
+      ) async {
+    try {
+      await _callbacks.onLogout();
+    } catch (logoutError) {
+      _log('❌ Logout callback failed: $logoutError');
+    }
+    handler.next(originalError);
+  }
+
+  /// Retry request from response handler
+  Future<void> _retryRequestFromResponse(
       String newToken,
       RequestOptions originalRequest,
       ResponseInterceptorHandler handler,
-      ) async
-  {
-    originalRequest.headers[_config.tokenHeaderName] = '${_config.tokenPrefix}$newToken';
+      ) async {
+    final updatedOptions = _updateRequestWithToken(originalRequest, newToken);
 
     try {
-      final dio = Dio();
-      final response = await dio.fetch(originalRequest);
+      final response = await _dio.fetch(updatedOptions);
       _log('✅ Original request retry successful after automatic refresh');
       handler.resolve(response);
     } catch (retryError) {
       _log('❌ Original request retry failed after refresh: $retryError');
       if (retryError is DioException) {
-        handler.next(retryError as Response);
+        handler.reject(retryError);
       } else {
-        handler.next(DioException(
-          requestOptions: originalRequest,
+        handler.reject(DioException(
+          requestOptions: updatedOptions,
           error: retryError,
           type: DioExceptionType.unknown,
-        ) as Response);
+        ));
       }
     }
   }
 
+  /// Retry request from error handler
+  Future<void> _retryRequestFromError(
+      String newToken,
+      DioException originalError,
+      ErrorInterceptorHandler handler,
+      ) async {
+    final updatedOptions = _updateRequestWithToken(originalError.requestOptions, newToken);
 
-  @override
-  void onError(DioException err, ErrorInterceptorHandler handler) async {
-    _log('⚠️ Error intercepted: ${err.response?.statusCode} for ${err.requestOptions.path}');
-
-    // Check if this is a 401 Unauthorized error and auto refresh is enabled
-    if (err.response?.statusCode == 401 && _config.autoRefresh) {
-      _log('🔄 401 Unauthorized detected, attempting automatic token refresh...');
-
-      // Check if we have initial token or any token available
-      final currentToken = await _callbacks.getToken();
-      if (currentToken == null || currentToken.isEmpty) {
-        _log('❌ No token available for refresh, triggering logout...');
-        try {
-          await _callbacks.onLogout();
-        } catch (logoutError) {
-          _log('❌ Logout callback failed: $logoutError');
-        }
-        handler.next(err);
-        return;
-      }
-
-      // If already refreshing, queue this request
-      if (_isRefreshing) {
-        _log('⏳ Token refresh in progress, queuing request...');
-        _queueAuthRequest(err.requestOptions, handler);
-        return;
-      }
-
-      // Attempt automatic token refresh
-      final refreshResult = await _attemptTokenRefresh();
-
-      if (refreshResult.success && refreshResult.token != null) {
-        _log('✅ Automatic token refresh successful, retrying original request...');
-
-        // Update the original request with new token
-        final newToken = refreshResult.token!;
-        final headerValue = '${_config.tokenPrefix}$newToken';
-        err.requestOptions.headers[_config.tokenHeaderName] = headerValue;
-
-        // Retry the original request
-        try {
-          final dio = Dio();
-          final response = await dio.fetch(err.requestOptions);
-          _log('✅ Original request retry successful after automatic refresh');
-          handler.resolve(response);
-          return;
-        } catch (retryError) {
-          _log('❌ Original request retry failed after refresh: $retryError');
-          if (retryError is DioException) {
-            handler.next(retryError);
-          } else {
-            handler.next(DioException(
-              requestOptions: err.requestOptions,
-              error: retryError,
-              type: DioExceptionType.unknown,
-            ));
-          }
-          return;
-        }
+    try {
+      final response = await _dio.fetch(updatedOptions);
+      _log('✅ Original request retry successful after automatic refresh');
+      handler.resolve(response);
+    } catch (retryError) {
+      _log('❌ Original request retry failed after refresh: $retryError');
+      if (retryError is DioException) {
+        handler.next(retryError);
       } else {
-        _log('❌ Automatic token refresh failed, triggering logout...');
-        // Token refresh failed, trigger logout
-        try {
-          await _callbacks.onLogout();
-        } catch (logoutError) {
-          _log('❌ Logout callback failed: $logoutError');
-        }
+        handler.next(DioException(
+          requestOptions: updatedOptions,
+          error: retryError,
+          type: DioExceptionType.unknown,
+        ));
       }
     }
-
-    // For non-401 errors or when refresh is disabled/failed
-    handler.next(err);
   }
 
-  /// Queue a request while token refresh is in progress
-  void _queueAuthRequest(RequestOptions options, ErrorInterceptorHandler handler) {
+  /// Update request options with new token
+  RequestOptions _updateRequestWithToken(RequestOptions options, String newToken) {
+    // Create a copy of the request options to avoid modifying the original
+    final updatedOptions = RequestOptions(
+      path: options.path,
+      method: options.method,
+      data: options.data,
+      queryParameters: options.queryParameters,
+      headers: Map<String, dynamic>.from(options.headers),
+      extra: Map<String, dynamic>.from(options.extra),
+      baseUrl: options.baseUrl,
+      connectTimeout: options.connectTimeout,
+      receiveTimeout: options.receiveTimeout,
+      sendTimeout: options.sendTimeout,
+      responseType: options.responseType,
+      contentType: options.contentType,
+      validateStatus: options.validateStatus,
+      receiveDataWhenStatusError: options.receiveDataWhenStatusError,
+      followRedirects: options.followRedirects,
+      maxRedirects: options.maxRedirects,
+      persistentConnection: options.persistentConnection,
+      requestEncoder: options.requestEncoder,
+      responseDecoder: options.responseDecoder,
+      listFormat: options.listFormat,
+    );
+
+    // Add the new token
+    final headerValue = '${_config.tokenPrefix}$newToken';
+    updatedOptions.headers[_config.tokenHeaderName] = headerValue;
+
+    return updatedOptions;
+  }
+
+  /// Queue a request from response handler
+  Future<void> _queueResponseRequest(
+      RequestOptions options,
+      ResponseInterceptorHandler handler
+      ) async {
+    final completer = Completer<Response>();
+    _pendingAuthRequests.add(_PendingAuthRequest(
+        options,
+        handler as ErrorInterceptorHandler,
+        completer
+    ));
+
+    try {
+      final response = await completer.future;
+      handler.resolve(response);
+    } catch (error) {
+      if (error is DioException) {
+        handler.reject(error);
+      } else {
+        handler.reject(DioException(
+          requestOptions: options,
+          error: error,
+          type: DioExceptionType.unknown,
+        ));
+      }
+    }
+  }
+
+  /// Queue a request from error handler
+  void _queueErrorRequest(RequestOptions options, ErrorInterceptorHandler handler) {
     final completer = Completer<Response>();
     _pendingAuthRequests.add(_PendingAuthRequest(options, handler, completer));
 
@@ -281,8 +371,6 @@ class AuthInterceptor extends QueuedInterceptor {
   }
 
   /// Attempt to refresh the token with improved queue handling
-  /// This ensures onRefreshToken is called only once, even with multiple 401s
-  /// Will automatically call refreshToken() when autoRefresh is enabled
   Future<_RefreshResult> _attemptTokenRefresh() async {
     // If already refreshing, wait for the ongoing refresh
     if (_isRefreshing) {
@@ -308,13 +396,11 @@ class AuthInterceptor extends QueuedInterceptor {
         _log('🔄 Automatic token refresh attempt $attempts/${_config.maxRetryAttempts}');
 
         try {
-          // Automatically call refreshToken() - this is where onRefreshToken is called
-          // This ensures the callback is triggered automatically when autoRefresh is true
           _log('📞 Automatically calling refreshToken callback...');
           newToken = await _callbacks.refreshToken();
 
           if (newToken != null && newToken.isNotEmpty) {
-            _log('✅ Automatic token refresh successful on attempt $attempts: ${newToken.substring(0, 20)}...');
+            _log('✅ Automatic token refresh successful on attempt $attempts');
             break;
           } else {
             _log('⚠️ Automatic token refresh returned null/empty token on attempt $attempts');
@@ -387,12 +473,10 @@ class AuthInterceptor extends QueuedInterceptor {
     for (final pendingRequest in requestsCopy) {
       try {
         // Update request with new token
-        final headerValue = '${_config.tokenPrefix}$newToken';
-        pendingRequest.options.headers[_config.tokenHeaderName] = headerValue;
+        final updatedOptions = _updateRequestWithToken(pendingRequest.options, newToken);
 
         // Execute the request
-        final dio = Dio();
-        final response = await dio.fetch(pendingRequest.options);
+        final response = await _dio.fetch(updatedOptions);
 
         _log('✅ Queued auth request completed successfully: ${pendingRequest.options.path}');
         pendingRequest.completer.complete(response);
