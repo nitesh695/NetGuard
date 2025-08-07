@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
 
+import '../netguard.dart';
+
 class NetGuardOptions {
   late final BaseOptions _baseOptions;
 
@@ -12,6 +14,30 @@ class NetGuardOptions {
     final json = jsonEncode(body);
     return base64Encode(utf8.encode(json));
   }
+
+  final AuthManager _authManager = AuthManager();
+
+  /// Get authentication manager
+  AuthManager get auth => _authManager;
+
+  /// Configure authentication (convenience method)
+  void configureAuth({
+    required AuthCallbacks callbacks,
+    AuthConfig config = const AuthConfig(),
+  }) {
+    _authManager.configure(callbacks: callbacks, config: config);
+  }
+
+  /// Clear authentication configuration
+  void clearAuth() {
+    _authManager.clear();
+  }
+
+  /// Check if authentication is configured
+  bool get hasAuth => _authManager.isConfigured;
+
+  /// Get authentication status
+  Map<String, dynamic> get authStatus => _authManager.getStatus();
 
   /// Cache duration for Hive cache expiration
   Duration? cacheDuration;

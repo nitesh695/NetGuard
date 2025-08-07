@@ -1,7 +1,6 @@
 import 'package:dio/dio.dart';
-import 'netguard_base.dart';
+import '../netguard.dart';
 import 'network_managers/network_service.dart';
-import 'network_managers/network_interceptor.dart';
 
 /// NetGuard - A powerful HTTP client built on top of Dio
 ///
@@ -32,6 +31,7 @@ class NetGuard extends NetGuardBase {
   /// Default NetGuard instance for static methods
   static NetGuard? _defaultInstance;
 
+  final AuthManager _authManager = AuthManager();
 
   /// Create a new NetGuard instance
   NetGuard([BaseOptions? options]) : super(options) {
@@ -62,6 +62,64 @@ class NetGuard extends NetGuardBase {
     }).catchError((error) {
       print('❌ Network service auto-initialization error: $error');
     });
+  }
+
+
+  /// Configure authentication
+  void configureAuth({
+    required AuthCallbacks callbacks,
+    AuthConfig config = const AuthConfig(),
+  }) {
+    _authManager.configure(callbacks: callbacks, config: config);
+    _setupAuthInterceptor();
+  }
+
+  /// Clear authentication
+  void clearAuth() {
+    // Remove all AuthInterceptor instances
+    final List<Interceptor> filtered = interceptors
+        .where((interceptor) => interceptor is! AuthInterceptor)
+        .toList();
+
+    interceptors.clear();
+    interceptors.addAll(filtered);
+
+    _authManager.clear();
+  }
+
+
+
+  /// Setup authentication interceptor
+  void _setupAuthInterceptor() {
+    final authInterceptor = _authManager.interceptor;
+
+    if (authInterceptor != null) {
+      final List<Interceptor> filtered = interceptors
+          .where((interceptor) => interceptor is! AuthInterceptor)
+          .toList();
+
+      interceptors.clear();
+      interceptors.addAll(filtered);
+
+      // Add auth interceptor at the beginning
+      interceptors.insert(0, authInterceptor);
+    }
+  }
+
+  /// Get authentication status
+  Map<String, dynamic> get authStatus => _authManager.getStatus();
+
+  /// Check if user is authenticated (convenience method)
+  Future<bool> isAuthenticated() async {
+    if (!_authManager.isConfigured) return false;
+    final token = await _authManager.callbacks?.getToken();
+    return token != null && token.isNotEmpty;
+  }
+
+  @override
+  void close({bool force = false}) {
+    clearAuth();
+    super.close(force: force);
   }
 
   /// Create NetGuard with custom options

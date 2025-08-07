@@ -9,6 +9,11 @@ export 'src/netguard_error.dart';
 export 'src/cache_manager.dart' ;
 export 'src/network_managers/network_service.dart' show NetworkStatus;
 
+// Add these new auth exports
+export 'src/auth/auth_interceptor.dart';
+export 'src/auth/auth_manager.dart';
+export 'src/auth/advance_auth_callbacks.dart';
+
 // Re-export Dio types for convenience
 export 'package:dio/dio.dart' show
 RequestOptions,

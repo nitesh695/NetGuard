@@ -68,6 +68,22 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
       return base64Encode(utf8.encode(json));
     };
 
+    _netGuard.configureAuth(
+      callbacks: AdvanceAuthCallbacks(
+        initialToken: '123456sdfghjk',
+        initialRefreshToken: 'asdfghjnbvcxsdfghj',
+        onRefreshToken: _handleTokenRefresh,
+        onTokenRefreshed: _handleTokenRefreshed,
+        onLogout: _handleLogout,
+      ),
+      config: const AuthConfig(
+        enableLogging: true, // Debug authentication
+        maxRetryAttempts: 2,
+        tokenHeaderName: 'Authorization',
+        tokenPrefix: 'Bearer ',
+      ),
+    );
+
     ///network config.......
     _netGuard.options.handleNetwork = true;
     _netGuard.options.autoRetryOnNetworkRestore = true;
@@ -91,29 +107,21 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
       return client;
     };
 
-    // MANUALLY INITIALIZE CACHE (this is the key addition!)
-    // print('🔧 Initializing cache...');
-    // final cacheInitialized = await CacheManager.initialize(_netGuard.options);
-    //
-    // if (cacheInitialized) {
-    //   print('✅ Cache initialized successfully');
-    // } else {
-    //   print('❌ Cache initialization failed');
-    //   print('Debug info: ${CacheManager.getInitializationInfo()}');
-    // }
-
     print("cache manager.....${CacheManager.getStats()}");
     // Add interceptors exactly as in your pattern
     _netGuard.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
-          if (_accessToken?.isNotEmpty == true) {
-            options.headers['Authorization'] = 'Bearer $_accessToken';
-          }
-          _addLog('📤 ${options.method} ${options.uri}');
+          // if (_accessToken?.isNotEmpty == true) {
+          //   options.headers['Authorization'] = 'Bearer $_accessToken';
+          // }
+          // _addLog('📤 ${options.method} ${options.uri}');
+
+          print("header while req....${options.headers}");
           return handler.next(options);
         },
         onResponse: (response, handler) async {
+          print("header while req....${response.headers}");
           _addLog('✅ ${response.statusCode} ${response.requestOptions.uri}');
           return handler.next(response);
         },
@@ -126,6 +134,49 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
     );
 
     _addLog('✅ NetGuard initialized successfully');
+  }
+
+  Future<String?> _handleTokenRefresh() async {
+    _addLog('🔄 Refreshing token...');
+
+    try {
+      // Create a temporary NetGuard instance without auth for refresh call
+      final refreshClient = NetGuard.withOptions(
+        baseUrl: _netGuard.options.baseUrl,
+      );
+
+      final response = await refreshClient.post('/auth/refresh', data: {
+        // 'refresh_token': _getStoredRefreshToken(),
+      });
+
+      if (response.statusCode == 200) {
+        final newToken = response.data['access_token'];
+        _addLog('✅ Token refresh successful');
+        return newToken;
+      }
+
+      _addLog('❌ Token refresh failed: ${response.statusCode}');
+      return null;
+    } catch (e) {
+      _addLog('❌ Token refresh error: $e');
+      return null;
+    }
+  }
+
+  /// Handle token refreshed
+  Future<void> _handleTokenRefreshed(String newToken) async {
+    _accessToken = newToken;
+    // await _storeToken(newToken);
+    _addLog('💾 New token stored');
+  }
+
+  /// Handle logout
+  Future<void> _handleLogout() async {
+    _addLog('👋 User logged out');
+    _accessToken = null;
+    // await _clearStoredTokens();
+    // Navigate to login screen
+    // NavigationService.navigateToLogin();
   }
 
 
@@ -261,29 +312,29 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
       final postResponse = await _netGuard.post('/posts',
           encryptBody: true,
           data: {
-        'title': 'NetGuard Test',
-        'body': 'Testing NetGuard HTTP methods',
-        'userId': 1,
-      });
+            'title': 'NetGuard Test',
+            'body': 'Testing NetGuard HTTP methods',
+            'userId': 1,
+          });
       _addLog('POST: Created post with ID ${postResponse.data['id']}');
 
       // PUT request
       final putResponse = await _netGuard.put('/posts/1',
           encryptBody: true,
           data: {
-        'id': 1,
-        'title': 'Updated via NetGuard PUT',
-        'body': 'This post was updated using NetGuard PUT method',
-        'userId': 1,
-      });
+            'id': 1,
+            'title': 'Updated via NetGuard PUT',
+            'body': 'This post was updated using NetGuard PUT method',
+            'userId': 1,
+          });
       _addLog('PUT: Updated post "${putResponse.data['title']}"');
 
       // PATCH request
       final patchResponse = await _netGuard.patch('/posts/1',
           encryptBody: true,
           data: {
-        'title': 'Patched via NetGuard',
-      });
+            'title': 'Patched via NetGuard',
+          });
       _addLog('PATCH: Patched post "${patchResponse.data['title']}"');
 
       // DELETE request
