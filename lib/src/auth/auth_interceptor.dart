@@ -111,9 +111,22 @@ class AuthInterceptor extends QueuedInterceptor {
   void onError(DioException err, ErrorInterceptorHandler handler) async {
     _log('⚠️ Error intercepted: ${err.response?.statusCode} for ${err.requestOptions.path}');
 
-    // Check if this is a 401 Unauthorized error
+    // Check if this is a 401 Unauthorized error and auto refresh is enabled
     if (err.response?.statusCode == 401 && _config.autoRefresh) {
-      _log('🔄 401 Unauthorized detected, attempting token refresh...');
+      _log('🔄 401 Unauthorized detected, attempting automatic token refresh...');
+
+      // Check if we have initial token or any token available
+      final currentToken = await _callbacks.getToken();
+      if (currentToken == null || currentToken.isEmpty) {
+        _log('❌ No token available for refresh, triggering logout...');
+        try {
+          await _callbacks.onLogout();
+        } catch (logoutError) {
+          _log('❌ Logout callback failed: $logoutError');
+        }
+        handler.next(err);
+        return;
+      }
 
       // If already refreshing, queue this request
       if (_isRefreshing) {
@@ -122,11 +135,11 @@ class AuthInterceptor extends QueuedInterceptor {
         return;
       }
 
-      // Attempt token refresh
+      // Attempt automatic token refresh
       final refreshResult = await _attemptTokenRefresh();
 
       if (refreshResult.success && refreshResult.token != null) {
-        _log('✅ Token refresh successful, retrying original request...');
+        _log('✅ Automatic token refresh successful, retrying original request...');
 
         // Update the original request with new token
         final newToken = refreshResult.token!;
@@ -137,11 +150,11 @@ class AuthInterceptor extends QueuedInterceptor {
         try {
           final dio = Dio();
           final response = await dio.fetch(err.requestOptions);
-          _log('✅ Original request retry successful');
+          _log('✅ Original request retry successful after automatic refresh');
           handler.resolve(response);
           return;
         } catch (retryError) {
-          _log('❌ Original request retry failed: $retryError');
+          _log('❌ Original request retry failed after refresh: $retryError');
           if (retryError is DioException) {
             handler.next(retryError);
           } else {
@@ -154,7 +167,7 @@ class AuthInterceptor extends QueuedInterceptor {
           return;
         }
       } else {
-        _log('❌ Token refresh failed, triggering logout...');
+        _log('❌ Automatic token refresh failed, triggering logout...');
         // Token refresh failed, trigger logout
         try {
           await _callbacks.onLogout();
@@ -191,6 +204,7 @@ class AuthInterceptor extends QueuedInterceptor {
 
   /// Attempt to refresh the token with improved queue handling
   /// This ensures onRefreshToken is called only once, even with multiple 401s
+  /// Will automatically call refreshToken() when autoRefresh is enabled
   Future<_RefreshResult> _attemptTokenRefresh() async {
     // If already refreshing, wait for the ongoing refresh
     if (_isRefreshing) {
@@ -205,7 +219,7 @@ class AuthInterceptor extends QueuedInterceptor {
     // Start the refresh process
     _isRefreshing = true;
     _refreshCompleter = Completer<String?>();
-    _log('🔄 Starting token refresh process...');
+    _log('🔄 Starting automatic token refresh process...');
 
     try {
       int attempts = 0;
@@ -213,19 +227,22 @@ class AuthInterceptor extends QueuedInterceptor {
 
       while (attempts < _config.maxRetryAttempts) {
         attempts++;
-        _log('🔄 Token refresh attempt $attempts/${_config.maxRetryAttempts}');
+        _log('🔄 Automatic token refresh attempt $attempts/${_config.maxRetryAttempts}');
 
         try {
-          // This is where onRefreshToken is called - only once per refresh cycle
+          // Automatically call refreshToken() - this is where onRefreshToken is called
+          // This ensures the callback is triggered automatically when autoRefresh is true
+          _log('📞 Automatically calling refreshToken callback...');
           newToken = await _callbacks.refreshToken();
+
           if (newToken != null && newToken.isNotEmpty) {
-            _log('✅ Token refresh successful on attempt $attempts');
+            _log('✅ Automatic token refresh successful on attempt $attempts: ${newToken.substring(0, 20)}...');
             break;
           } else {
-            _log('⚠️ Token refresh returned null/empty token on attempt $attempts');
+            _log('⚠️ Automatic token refresh returned null/empty token on attempt $attempts');
           }
         } catch (e) {
-          _log('❌ Token refresh failed on attempt $attempts: $e');
+          _log('❌ Automatic token refresh failed on attempt $attempts: $e');
           if (attempts < _config.maxRetryAttempts) {
             _log('⏳ Waiting ${_config.retryDelay.inMilliseconds}ms before retry...');
             await Future.delayed(_config.retryDelay);
@@ -236,10 +253,11 @@ class AuthInterceptor extends QueuedInterceptor {
       if (newToken != null && newToken.isNotEmpty) {
         // Notify that token was refreshed
         try {
+          _log('📞 Calling onTokenRefreshed callback with new token...');
           await _callbacks.onTokenRefreshed(newToken);
-          _log('✅ Token refresh callback completed successfully');
+          _log('✅ onTokenRefreshed callback completed successfully');
         } catch (e) {
-          _log('❌ Token refresh callback failed: $e');
+          _log('❌ onTokenRefreshed callback failed: $e');
         }
 
         // Complete the refresh completer with success
@@ -252,7 +270,7 @@ class AuthInterceptor extends QueuedInterceptor {
 
         return _RefreshResult(success: true, token: newToken);
       } else {
-        _log('❌ Token refresh failed after all attempts');
+        _log('❌ Automatic token refresh failed after all attempts');
 
         // Complete the refresh completer with failure
         if (!_refreshCompleter!.isCompleted) {
@@ -263,7 +281,7 @@ class AuthInterceptor extends QueuedInterceptor {
         return _RefreshResult(success: false);
       }
     } catch (e) {
-      _log('❌ Unexpected error during token refresh: $e');
+      _log('❌ Unexpected error during automatic token refresh: $e');
 
       // Complete the refresh completer with error
       if (!_refreshCompleter!.isCompleted) {
@@ -275,7 +293,7 @@ class AuthInterceptor extends QueuedInterceptor {
     } finally {
       _isRefreshing = false;
       _refreshCompleter = null;
-      _log('🔄 Token refresh process completed');
+      _log('🔄 Automatic token refresh process completed');
     }
   }
 
