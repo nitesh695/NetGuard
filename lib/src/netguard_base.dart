@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:dio/dio.dart';
 import 'cache_manager.dart';
+import 'models/QueuedRequest.dart';
 import 'netguard_options.dart';
 import 'netguard_interceptors.dart';
 import 'network_managers/network_interceptor.dart';
@@ -19,6 +20,10 @@ abstract class NetGuardBase {
   bool _networkInterceptorAdded = false;
   bool _networkInitialized = false;
 
+  /// Queue for offline requests
+  final List<QueuedRequest> _requestQueue = [];
+  StreamSubscription<NetworkStatus>? _networkStatusSubscription;
+
   /// HTTP client adapter
   HttpClientAdapter get httpClientAdapter => _dio.httpClientAdapter;
   set httpClientAdapter(HttpClientAdapter adapter) =>
@@ -33,6 +38,7 @@ abstract class NetGuardBase {
     _dio = Dio(options);
     this.options = NetGuardOptions.fromBaseOptions(_dio.options);
     interceptors = NetGuardInterceptors(_dio.interceptors);
+    _setupNetworkListener();
   }
 
   /// Initialize NetGuard from existing Dio instance
@@ -45,29 +51,173 @@ abstract class NetGuardBase {
     options.setNetworkHandlingCallback(() async {
       await _initializeNetworkHandling();
     });
+    _setupNetworkListener();
   }
 
-  /// Initialize network service immediately (non-blocking)
-  void _initializeNetworkServiceEarly() {
-    // Initialize network service in the background
-    NetworkService.instance.initialize().then((success) {
-      if (success) {
-        print('🌐 Network service auto-initialized successfully');
-      } else {
-        print('❌ Network service auto-initialization failed: ${NetworkService.instance.initializationError}');
+  /// Setup network status listener
+  void _setupNetworkListener() {
+    _networkStatusSubscription = statusStream.listen((status) {
+      if (status == NetworkStatus.online) {
+        _processQueuedRequests();
       }
-    }).catchError((error) {
-      print('❌ Network service auto-initialization error: $error');
     });
+  }
+
+  /// Process queued requests when network comes back online
+  Future<void> _processQueuedRequests() async {
+    if (_requestQueue.isEmpty) return;
+
+    print('🔄 Processing ${_requestQueue.length} queued requests...');
+
+    final queueCopy = List<QueuedRequest>.from(_requestQueue);
+    _requestQueue.clear();
+
+    for (final queuedRequest in queueCopy) {
+      try {
+        // Check if the request is still valid (not cancelled and not too old)
+        if (queuedRequest.cancelToken?.isCancelled == true) {
+          queuedRequest.completer.completeError(
+            DioException(
+              requestOptions: RequestOptions(path: queuedRequest.path),
+              error: 'Request was cancelled',
+              type: DioExceptionType.cancel,
+            ),
+          );
+          continue;
+        }
+
+        // Execute the queued request
+        final response = await _executeGetRequest(
+          queuedRequest.path,
+          data: queuedRequest.data,
+          queryParameters: queuedRequest.queryParameters,
+          options: queuedRequest.options,
+          cancelToken: queuedRequest.cancelToken,
+          onReceiveProgress: queuedRequest.onReceiveProgress,
+          encryptBody: queuedRequest.encryptBody,
+          useCache: queuedRequest.useCache,
+          isFromQueue: true,
+        );
+
+
+        queuedRequest.completer.complete(response);
+      } catch (e) {
+        queuedRequest.completer.completeError(e);
+      }
+    }
+
+    print('✅ Processed all queued requests');
+  }
+
+  /// Create a network error response
+  Future<Response<T>> _createNetworkErrorResponse<T>(String path) async{
+    final Map<String, dynamic> responseData = {
+      'statusCode': 503,
+      'message': 'No Internet !',
+    };
+
+    return Response<T>(
+      statusCode: 503,
+      statusMessage: 'No Internet !',
+      data: responseData as T, // Casting Map to generic T
+      requestOptions: RequestOptions(path: path),
+      extra: {
+        'networkError': true,
+        'message': 'No Internet !',
+        'queued': true,
+      },
+    );
+  }
+
+
+  /// Execute the actual GET request
+  Future<Response<T>> _executeGetRequest<T>(
+      String path, {
+        Object? data,
+        Map<String, dynamic>? queryParameters,
+        Options? options,
+        CancelToken? cancelToken,
+        ProgressCallback? onReceiveProgress,
+        bool encryptBody = false,
+        bool useCache = false,
+        bool isFromQueue = false,
+      }) async
+  {
+    String encrypted = '';
+    if (encryptBody) {
+      encrypted = this.options.encryptionFunction(data);
+      options ??= Options();
+      options.contentType = options.contentType ?? Headers.textPlainContentType;
+    }
+
+    // Add network extras to options
+    options = _addNetworkExtras(options);
+
+    if (useCache && !isFromQueue) {
+      final cached = await CacheManager.getResponse(
+        options: this.options,
+        path: path,
+        query: queryParameters,
+      );
+
+      // Start background fetch (non-blocking) only if online
+      if (isNetworkOnline) {
+        unawaited(() async {
+          try {
+            final newResponse = await _dio.get<T>(
+              path,
+              data: encryptBody ? encrypted : data,
+              queryParameters: queryParameters,
+              options: options,
+              cancelToken: cancelToken,
+              onReceiveProgress: onReceiveProgress,
+            );
+            if (newResponse.statusCode == 200) {
+              await CacheManager.saveResponse(
+                options: this.options,
+                path: path,
+                query: queryParameters,
+                response: newResponse.data,
+              );
+            }
+          } catch (e) {
+            print("Background fetch error: $e");
+          }
+        }());
+      }
+
+      if (cached != null) {
+        return Response<T>(
+          data: cached as T,
+          statusCode: 200,
+          requestOptions: RequestOptions(path: path),
+        );
+      }
+    }
+
+    final response = await _dio.get<T>(
+      path,
+      data: encryptBody ? encrypted : data,
+      queryParameters: queryParameters,
+      options: options,
+      cancelToken: cancelToken,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    if (useCache && response.statusCode == 200) {
+      await CacheManager.saveResponse(
+        options: this.options,
+        path: path,
+        query: queryParameters,
+        response: response.data,
+      );
+    }
+
+    return response;
   }
 
   /// Get the underlying Dio instance
   Dio get dio => _dio;
-
-  /// Close the NetGuard instance and clean up resources
-  void close({bool force = false}) {
-    _dio.close(force: force);
-  }
 
   /// Initialize network handling if enabled
   Future<void> _initializeNetworkHandling() async {
@@ -111,11 +261,15 @@ abstract class NetGuardBase {
     };
 
     if (options == null) {
-      return Options(extra: extras);
+      return Options(
+        extra: extras,
+        validateStatus: (status) => status != null && status < 600, // Accept 5xx as valid responses
+      );
     }
 
     return options.copyWith(
       extra: {...options.extra ?? {}, ...extras},
+      validateStatus: options.validateStatus ?? (status) => status != null && status < 600, // Only set if not already defined
     );
   }
 
@@ -152,81 +306,71 @@ abstract class NetGuardBase {
         ProgressCallback? onReceiveProgress,
         bool encryptBody = false,
         bool useCache = false,
-      }) async {
+      }) async
+  {
 
-    if(this.options.handleNetwork){
-      print("my network is online $isNetworkOnline");
-    }
+    // Check network handling is enabled
+    if (this.options.handleNetwork) {
+      print("Network handling enabled. Online status: $isNetworkOnline");
 
-    String encrypted = '';
-    if (encryptBody) {
-      encrypted = this.options.encryptionFunction(data);
-      options ??= Options();
-      options.contentType = options.contentType ?? Headers.textPlainContentType;
-    }
+      // If network is offline
+      if (!isNetworkOnline) {
+        print("📱 Network is offline, checking cache...");
 
-    // Add network extras to options
-    options = _addNetworkExtras(options);
-
-    if (useCache) {
-      final cached = await CacheManager.getResponse(
-        options: this.options,
-        path: path,
-        query: queryParameters,
-      );
-
-      // Start background fetch (non-blocking)
-      unawaited(() async {
-        try {
-          final newResponse = await _dio.get<T>(
-            path,
-            data: encryptBody ? encrypted : data,
-            queryParameters: queryParameters,
-            options: options,
-            cancelToken: cancelToken,
-            onReceiveProgress: onReceiveProgress,
+        // Try to get from cache first
+        if (useCache) {
+          final cached = await CacheManager.getResponse(
+            options: this.options,
+            path: path,
+            query: queryParameters,
           );
-          if (newResponse.statusCode == 200) {
-            await CacheManager.saveResponse(
-              options: this.options,
-              path: path,
-              query: queryParameters,
-              response: newResponse.data,
+
+          if (cached != null) {
+            print("💾 Returning cached response");
+            return Response<T>(
+              data: cached as T,
+              statusCode: 200,
+              requestOptions: RequestOptions(path: path),
+              extra: {'fromCache': true},
             );
           }
-        } catch (e) {
-          print("fetch error $e");
         }
-      }());
 
-      if (cached != null) {
-        return Response<T>(
-          data: cached as T,
-          statusCode: 200,
-          requestOptions: RequestOptions(path: path),
+        // No cache available, queue the request and return network error response
+        print("📋 Queueing request for when network comes online...");
+
+        final completer = Completer<Response<T>>();
+        final queuedRequest = QueuedRequest(
+          path: path,
+          data: data,
+          queryParameters: queryParameters,
+          options: options,
+          cancelToken: cancelToken,
+          onReceiveProgress: onReceiveProgress,
+          encryptBody: encryptBody,
+          useCache: useCache,
+          completer: completer,
+          timestamp: DateTime.now(),
         );
+
+        _requestQueue.add(queuedRequest);
+
+        // Return network error response immediately
+        return _createNetworkErrorResponse<T>(path);
       }
     }
 
-    final response = await _dio.get<T>(
+    // Network is online or network handling is disabled, proceed normally
+    return await _executeGetRequest<T>(
       path,
-      data: encryptBody ? encrypted : data,
+      data: data,
       queryParameters: queryParameters,
       options: options,
       cancelToken: cancelToken,
       onReceiveProgress: onReceiveProgress,
+      encryptBody: encryptBody,
+      useCache: useCache,
     );
-
-    if (useCache && response.statusCode == 200) {
-      await CacheManager.saveResponse(
-        options: this.options,
-        path: path,
-        query: queryParameters,
-        response: response.data,
-      );
-    }
-
-    return response;
   }
 
   /// Convenience method to make a GET request and return URI
@@ -250,6 +394,14 @@ abstract class NetGuardBase {
         ProgressCallback? onReceiveProgress,
         bool encryptBody = false,
       }) async {
+
+    if (this.options.handleNetwork) {
+      if (!isNetworkOnline) {
+        return _createNetworkErrorResponse<T>(path);
+      }
+    }
+
+
 
     String encrypted = '';
     if (encryptBody) {
@@ -284,6 +436,11 @@ abstract class NetGuardBase {
         bool encryptBody = false,
       }) async {
 
+    if (this.options.handleNetwork) {
+      if (!isNetworkOnline) {
+        return _createNetworkErrorResponse<T>(path);
+      }
+    }
 
     String encrypted = '';
     if (encryptBody) {
@@ -318,6 +475,11 @@ abstract class NetGuardBase {
         bool encryptBody = false,
       }) async {
 
+    if (this.options.handleNetwork) {
+      if (!isNetworkOnline) {
+        return _createNetworkErrorResponse<T>(path);
+      }
+    }
     String encrypted = '';
     if (encryptBody) {
       encrypted = this.options.encryptionFunction(data);
@@ -349,6 +511,11 @@ abstract class NetGuardBase {
         bool encryptBody = false,
       }) async {
 
+    if (this.options.handleNetwork) {
+      if (!isNetworkOnline) {
+        return _createNetworkErrorResponse<T>(path);
+      }
+    }
     String encrypted = '';
     if (encryptBody) {
       encrypted = this.options.encryptionFunction(data);
@@ -377,6 +544,12 @@ abstract class NetGuardBase {
         CancelToken? cancelToken,
         bool encryptBody = false,
       }) async {
+
+    if (this.options.handleNetwork) {
+      if (!isNetworkOnline) {
+        return _createNetworkErrorResponse<T>(path);
+      }
+    }
 
     String encrypted = '';
     if (encryptBody) {
@@ -409,13 +582,63 @@ abstract class NetGuardBase {
         bool encryptBody = false,
         bool useCache = false,
       }) async {
-
+    // Normalize method
     final method = (options?.method ?? 'get').toLowerCase();
 
-    // Add network extras to options
+    // Handle offline mode for GET with queue support
+    if (this.options.handleNetwork && !isNetworkOnline && method == 'get') {
+      print("📱 Network is offline, checking cache...");
+
+      // Try to get cached response
+      if (useCache) {
+        final cached = await CacheManager.getResponse(
+          options: this.options,
+          path: path,
+          query: queryParameters,
+        );
+
+        if (cached != null) {
+          print("💾 Returning cached response");
+          return Response<T>(
+            data: cached as T,
+            statusCode: 200,
+            requestOptions: RequestOptions(path: path),
+            extra: {'fromCache': true},
+          );
+        }
+      }
+
+      // No cache: queue request and return network error response
+      print("📋 Queueing GET request for when network comes online...");
+
+      final completer = Completer<Response<T>>();
+      final queuedRequest = QueuedRequest(
+        path: path,
+        data: data,
+        queryParameters: queryParameters,
+        options: options,
+        cancelToken: cancelToken,
+        onReceiveProgress: onReceiveProgress,
+        encryptBody: encryptBody,
+        useCache: useCache,
+        completer: completer,
+        timestamp: DateTime.now(),
+      );
+
+      _requestQueue.add(queuedRequest);
+
+      // Return simulated offline response
+      return Future.value(_createNetworkErrorResponse<T>(path));
+    }
+
+    if(method != 'get' && this.options.handleNetwork && !isNetworkOnline){
+      return Future.value(_createNetworkErrorResponse<T>(path));
+    }
+
+    // Add internal metadata to options
     options = _addNetworkExtras(options);
 
-    // Cache support only for GET
+    // Handle GET caching
     if (method == 'get' && useCache) {
       final cached = await CacheManager.getResponse(
         options: this.options,
@@ -423,7 +646,7 @@ abstract class NetGuardBase {
         query: queryParameters,
       );
 
-      // Start background refresh
+      // Trigger background refresh
       unawaited(() async {
         try {
           String encrypted = '';
@@ -450,29 +673,30 @@ abstract class NetGuardBase {
             );
           }
         } catch (_) {
-          // silently fail
+          // silent fail
         }
       }());
 
-      // Return cached immediately if available
+      // Return cached if found
       if (cached != null) {
         return Response<T>(
           data: cached as T,
           statusCode: 200,
           requestOptions: RequestOptions(path: path),
+          extra: {'fromCache': true},
         );
       }
     }
 
-    // Encrypt if required
+    // Handle encryption if needed
     String encrypted = '';
     if (encryptBody) {
       encrypted = this.options.encryptionFunction(data);
       options ??= Options();
-      options.contentType = options.contentType ?? Headers.textPlainContentType;
+      options.contentType ??= Headers.textPlainContentType;
     }
 
-    // Perform actual request
+    // Make the actual request
     final response = await _dio.request<T>(
       path,
       data: encryptBody ? encrypted : data,
@@ -483,7 +707,7 @@ abstract class NetGuardBase {
       onReceiveProgress: onReceiveProgress,
     );
 
-    // Save fresh response to cache if it's GET
+    // Cache the GET response if required
     if (method == 'get' && useCache && response.statusCode == 200) {
       await CacheManager.saveResponse(
         options: this.options,
@@ -496,6 +720,7 @@ abstract class NetGuardBase {
     return response;
   }
 
+
   /// Make HTTP request with URI
   Future<Response<T>> requestUri<T>(
       Uri uri, {
@@ -507,6 +732,11 @@ abstract class NetGuardBase {
         bool encryptBody = false,
       }) async {
 
+    if (this.options.handleNetwork) {
+      if (!isNetworkOnline) {
+        return _createNetworkErrorResponse<T>(uri.path);
+      }
+    }
     String encrypted = '';
     if (encryptBody) {
       encrypted = this.options.encryptionFunction(data);
@@ -540,7 +770,6 @@ abstract class NetGuardBase {
         Options? options,
         bool encryptBody = false,
       }) async {
-
 
     String encrypted = '';
     if (encryptBody) {
@@ -604,5 +833,45 @@ abstract class NetGuardBase {
   /// Fetch data with options
   Future<Response<T>> fetch<T>(RequestOptions requestOptions) {
     return _dio.fetch<T>(requestOptions);
+  }
+
+  /// Close the NetGuard instance and clean up resources
+  void close({bool force = false}) {
+    _networkStatusSubscription?.cancel();
+
+    // Complete any pending queued requests with cancellation error
+    for (final queuedRequest in _requestQueue) {
+      if (!queuedRequest.completer.isCompleted) {
+        queuedRequest.completer.completeError(
+          DioException(
+            requestOptions: RequestOptions(path: queuedRequest.path),
+            error: 'NetGuard instance was closed',
+            type: DioExceptionType.cancel,
+          ),
+        );
+      }
+    }
+    _requestQueue.clear();
+
+    _dio.close(force: force);
+  }
+
+  /// Get queued requests count
+  int get queuedRequestsCount => _requestQueue.length;
+
+  /// Clear queued requests (useful for testing or manual cleanup)
+  void clearQueue() {
+    for (final queuedRequest in _requestQueue) {
+      if (!queuedRequest.completer.isCompleted) {
+        queuedRequest.completer.completeError(
+          DioException(
+            requestOptions: RequestOptions(path: queuedRequest.path),
+            error: 'Queue was manually cleared',
+            type: DioExceptionType.cancel,
+          ),
+        );
+      }
+    }
+    _requestQueue.clear();
   }
 }

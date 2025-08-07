@@ -60,7 +60,7 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
     _netGuard.options.connectTimeout = const Duration(seconds: 10);
     _netGuard.options.receiveTimeout = const Duration(seconds: 10);
     _netGuard.options.sendTimeout = const Duration(seconds: 10);
-    _netGuard.options.cacheDuration = const Duration(seconds: 10);
+    _netGuard.options.cacheDuration = const Duration(minutes: 10);
 
     _netGuard.options.maxCacheSize = 10;
     _netGuard.options.encryptionFunction = (body){
@@ -76,8 +76,9 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
 
     _netGuard.statusStream.listen((status) {
       // This works immediately - no manual initialization needed!
-      print('🌐 Network status1111: $status');
-      // ... handle status changes
+      if( status == NetworkStatus.online){
+        print('🌐 Network status1111: ${status}');
+      }
     });
 
     print('📊 Network info: ${_netGuard.refreshNetworkStatus()}');
@@ -215,13 +216,18 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
       );
 
       // Use static method
-      final response = await NetGuard.instance.get('/users/1',encryptBody: false,useCache: true);
+      final response = await _netGuard.get('/users/4',encryptBody: false,useCache: true);
+
       print("response.....${response.data}");
       print("cache manager.....${CacheManager.getStats()}");
-      _addLog('📊 Static Response:');
-      _addLog('   Name: ${response.data['name']}');
-      _addLog('   Email: ${response.data['email']}');
-      _addLog('   Website: ${response.data['website']}');
+      if(response.statusCode == 200) {
+        _addLog('📊 Static Response:');
+        _addLog('   Name: ${response.data['name']}');
+        _addLog('   Email: ${response.data['email']}');
+        _addLog('   Website: ${response.data['website']}');
+      }else{
+        _addLog('📊 Static Response: ${response.data}');
+      }
 
 
     } catch (e) {
@@ -303,7 +309,8 @@ class _NetGuardExamplePageState extends State<NetGuardExamplePage> {
       _addLog('🔍 Demonstrating error handling...');
 
       // This will cause a 404 error
-      await _netGuard.get('/nonexistent-endpoint',encryptBody: true,);
+      final response =await _netGuard.get('/nonexistent-endpoint',encryptBody: true,);
+      _addLog('   Response: ${response.statusCode}....${response.data}');
 
     } catch (e) {
       if (e is DioException) {

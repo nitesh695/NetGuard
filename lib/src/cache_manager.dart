@@ -11,9 +11,9 @@ import 'cache_managers/mobile_cache_manager.dart' if (dart.library.html) 'cache_
 abstract class CacheManager {
   /// Manually initialize the cache manager (optional)
   /// This is useful if you want to initialize upfront instead of lazy loading
-  static Future<bool> initialize(NetGuardOptions options) async {
-    return cache_impl.CacheManagerImpl.initialize(options);
-  }
+  // static Future<bool> initialize(NetGuardOptions options) async {
+  //   return cache_impl.CacheManagerImpl.initialize(options);
+  // }
 
   /// Save response to cache
   static Future<void> saveResponse({
