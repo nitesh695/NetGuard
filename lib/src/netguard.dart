@@ -3,30 +3,6 @@ import '../netguard.dart';
 import 'network_managers/network_service.dart';
 
 /// NetGuard - A powerful HTTP client built on top of Dio
-///
-/// NetGuard provides all the functionality of Dio with additional features
-/// and a familiar API that maintains backward compatibility.
-///
-/// Example usage:
-/// ```dart
-/// final netGuard = NetGuard();
-///
-/// // Configure options
-/// netGuard.options.baseUrl = 'https://api.example.com';
-/// netGuard.options.connectTimeout = const Duration(seconds: 10);
-///
-/// // Add interceptors
-/// netGuard.interceptors.add(InterceptorsWrapper(
-///   onRequest: (options, handler) {
-///     // Add auth token
-///     options.headers['Authorization'] = 'Bearer $token';
-///     handler.next(options);
-///   },
-/// ));
-///
-/// // Make requests
-/// final response = await netGuard.post('/api/data', data: {'key': 'value'});
-/// ```
 class NetGuard extends NetGuardBase {
   /// Default NetGuard instance for static methods
   static NetGuard? _defaultInstance;
@@ -64,7 +40,6 @@ class NetGuard extends NetGuardBase {
     });
   }
 
-
   /// Configure authentication
   void configureAuth({
     required AuthCallbacks callbacks,
@@ -87,8 +62,6 @@ class NetGuard extends NetGuardBase {
     _authManager.clear();
   }
 
-
-
   /// Setup authentication interceptor
   void _setupAuthInterceptor() {
     final authInterceptor = _authManager.interceptor;
@@ -104,6 +77,57 @@ class NetGuard extends NetGuardBase {
       // Add auth interceptor at the beginning
       interceptors.insert(0, authInterceptor);
     }
+  }
+
+  /// Update authentication tokens - ADD THIS METHOD
+  Future<void> updateAuthTokens({
+    required String accessToken,
+    String? refreshToken,
+  }) async {
+    if (!_authManager.isConfigured) {
+      print('❌ Auth not configured, cannot update tokens');
+      return;
+    }
+
+    print('🔄 Updating auth tokens in NetGuard...');
+
+    // Update tokens in the auth manager
+    await _authManager.updateTokens(
+      accessToken: accessToken,
+      refreshToken: refreshToken,
+    );
+
+    // If using AdvanceAuthCallbacks, also update directly
+    if (_authManager.callbacks is AdvanceAuthCallbacks) {
+      final callbacks = _authManager.callbacks as AdvanceAuthCallbacks;
+      callbacks.setTokens(
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+      );
+      print('✅ Tokens updated successfully');
+    }
+  }
+
+  /// Test authentication flow (useful for debugging) - ADD THIS METHOD
+  Future<void> testAuthFlow() async {
+    if (!_authManager.isConfigured) {
+      print('❌ Auth not configured for testing');
+      return;
+    }
+
+    print('🧪 Testing authentication flow...');
+
+    // Test getting current token
+    final currentToken = await _authManager.callbacks?.getToken();
+    print('📋 Current token: ${currentToken?.substring(0, 20) ?? 'null'}...');
+
+    // Test token refresh
+    final newToken = await _authManager.testTokenRefresh();
+    print('📋 Refresh result: ${newToken?.substring(0, 20) ?? 'null'}...');
+
+    // Print auth status
+    final status = _authManager.getStatus();
+    print('📊 Auth status: $status');
   }
 
   /// Get authentication status
@@ -185,14 +209,8 @@ class NetGuard extends NetGuardBase {
     netGuard.options.maxNetworkRetries = maxNetworkRetries;
     netGuard.options.throwOnOffline = throwOnOffline;
 
-    // Initialize network handling if enabled
-    // if (handleNetwork) {
-    //   netGuard._initializeNetworkHandling();
-    // }
-
     return netGuard;
   }
-
 
   /// Configure the default instance with common settings
   static Future<void> configure({
@@ -257,11 +275,6 @@ class NetGuard extends NetGuardBase {
     netGuard.options.autoRetryOnNetworkRestore = autoRetryOnNetworkRestore;
     netGuard.options.maxNetworkRetries = maxNetworkRetries;
     netGuard.options.throwOnOffline = throwOnOffline;
-
-    // Initialize network handling if enabled
-    // if (handleNetwork) {
-    //   await netGuard._initializeNetworkHandling();
-    // }
   }
 
   /// Manually refresh network status
