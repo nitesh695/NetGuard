@@ -24,7 +24,7 @@ class AuthManager {
     required AuthCallbacks callbacks,
     AuthConfig config = const AuthConfig(),
   }) {
-    // FIXED: Store the references correctly (was overwriting with local variables)
+    // Store the references correctly
     _callbacks = callbacks;
     _config = config;
 

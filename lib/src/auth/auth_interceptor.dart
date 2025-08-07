@@ -46,13 +46,14 @@ abstract class AuthCallbacks {
   Future<void> onLogout();
 }
 
-/// Authentication interceptor for NetGuard
+/// Authentication interceptor for NetGuard with improved queue management
 class AuthInterceptor extends QueuedInterceptor {
   final AuthCallbacks _callbacks;
   final AuthConfig _config;
 
   bool _isRefreshing = false;
   final List<_PendingRequest> _pendingRequests = [];
+  final Completer<String?> _refreshCompleter = Completer<String?>();
 
   AuthInterceptor({
     required AuthCallbacks callbacks,
@@ -169,16 +170,16 @@ class AuthInterceptor extends QueuedInterceptor {
     });
   }
 
-  /// Attempt to refresh the token
+  /// Attempt to refresh the token with improved queue handling
   Future<_RefreshResult> _attemptTokenRefresh() async {
     if (_isRefreshing) {
-      // Wait for ongoing refresh
-      while (_isRefreshing) {
-        await Future.delayed(const Duration(milliseconds: 100));
+      // Wait for ongoing refresh using the completer
+      try {
+        final token = await _refreshCompleter.future;
+        return _RefreshResult(success: token != null, token: token);
+      } catch (e) {
+        return _RefreshResult(success: false);
       }
-      // Check if refresh was successful by getting the token
-      final token = await _callbacks.getToken();
-      return _RefreshResult(success: token != null, token: token);
     }
 
     _isRefreshing = true;
@@ -218,17 +219,34 @@ class AuthInterceptor extends QueuedInterceptor {
           _log('❌ Token refresh callback failed: $e');
         }
 
+        // Complete the refresh completer with success
+        if (!_refreshCompleter.isCompleted) {
+          _refreshCompleter.complete(newToken);
+        }
+
         // Process any queued requests
         await _processQueuedRequests(newToken);
 
         return _RefreshResult(success: true, token: newToken);
       } else {
         _log('❌ Token refresh failed after all attempts');
+
+        // Complete the refresh completer with failure
+        if (!_refreshCompleter.isCompleted) {
+          _refreshCompleter.complete(null);
+        }
+
         _clearQueuedRequests();
         return _RefreshResult(success: false);
       }
     } catch (e) {
       _log('❌ Unexpected error during token refresh: $e');
+
+      // Complete the refresh completer with error
+      if (!_refreshCompleter.isCompleted) {
+        _refreshCompleter.completeError(e);
+      }
+
       _clearQueuedRequests();
       return _RefreshResult(success: false);
     } finally {
@@ -312,6 +330,9 @@ class AuthInterceptor extends QueuedInterceptor {
   void clear() {
     _clearQueuedRequests();
     _isRefreshing = false;
+    if (!_refreshCompleter.isCompleted) {
+      _refreshCompleter.complete(null);
+    }
   }
 }
 
