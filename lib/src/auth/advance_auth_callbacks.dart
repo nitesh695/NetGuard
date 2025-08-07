@@ -57,7 +57,7 @@ class AdvanceAuthCallbacks implements AuthCallbacks {
       print('   - Current access token: ${_token?.substring(0, 20) ?? 'null'}...');
       print('   - Current refresh token: ${_refreshToken?.substring(0, 20) ?? 'null'}...');
 
-      final newToken = await _onRefreshToken!();
+      final newToken = await _onRefreshToken();
 
       if (newToken != null && newToken.isNotEmpty) {
         print('✅ Automatic refresh successful! New token: ${newToken.substring(0, 20)}...');

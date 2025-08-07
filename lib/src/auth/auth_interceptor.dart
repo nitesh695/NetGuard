@@ -106,7 +106,8 @@ class AuthInterceptor extends QueuedInterceptor {
     _log('✅ Response received: ${response.statusCode} for ${response.requestOptions.path}');
 
     // If status is 401 and auto-refresh is enabled, attempt recovery
-    if (response.statusCode == 401 && _config.autoRefresh) {
+    final skipAuthRefresh = response.requestOptions.extra['isRefresh'] == true;
+    if (response.statusCode == 401 && _config.autoRefresh && !skipAuthRefresh) {
       await _handleUnauthorized(response.requestOptions, handler);
       return;
     }
