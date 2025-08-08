@@ -21,6 +21,9 @@ class AuthConfig {
   /// Whether to log authentication activities (for debugging)
   final bool enableLogging;
 
+  /// Cooldown duration for logout function (default: 1 minute)
+  final Duration logoutCooldown;
+
   const AuthConfig({
     this.tokenHeaderName = 'Authorization',
     this.tokenPrefix = 'Bearer ',
@@ -28,6 +31,7 @@ class AuthConfig {
     this.retryDelay = const Duration(milliseconds: 500),
     this.autoRefresh = true,
     this.enableLogging = false,
+    this.logoutCooldown = const Duration(minutes: 1),
   });
 }
 
@@ -65,7 +69,7 @@ class _RefreshResult {
   _RefreshResult({required this.success, this.token});
 }
 
-/// Authentication interceptor for NetGuard with improved queue management
+/// Authentication interceptor for NetGuard with improved queue management and logout cooldown
 class AuthInterceptor extends QueuedInterceptor {
   final AuthCallbacks _callbacks;
   final AuthConfig _config;
@@ -74,6 +78,9 @@ class AuthInterceptor extends QueuedInterceptor {
   bool _isRefreshing = false;
   final List<_PendingAuthRequest> _pendingAuthRequests = [];
   Completer<String?>? _refreshCompleter;
+
+  // Logout cooldown tracking
+  DateTime? _lastLogoutTime;
 
   AuthInterceptor({
     required AuthCallbacks callbacks,
@@ -132,8 +139,43 @@ class AuthInterceptor extends QueuedInterceptor {
       return;
     }
 
-    // For non-401 errors or when refresh is disabled/failed
     handler.next(err);
+  }
+
+  /// Check if logout can be triggered (respects cooldown period)
+  bool _canTriggerLogout() {
+    if (_lastLogoutTime == null) {
+      return true;
+    }
+
+    final timeSinceLastLogout = DateTime.now().difference(_lastLogoutTime!);
+    final canTrigger = timeSinceLastLogout >= _config.logoutCooldown;
+
+    if (!canTrigger) {
+      final remainingCooldown = _config.logoutCooldown - timeSinceLastLogout;
+      _log('🚫 Logout cooldown active. ${remainingCooldown.inSeconds} seconds remaining');
+    }
+
+    return canTrigger;
+  }
+
+  /// Trigger logout with cooldown protection
+  Future<bool> _triggerLogoutWithCooldown() async {
+    if (!_canTriggerLogout()) {
+      _log('⏳ Logout skipped due to cooldown period');
+      return false;
+    }
+
+    try {
+      _log('🔓 Triggering logout...');
+      _lastLogoutTime = DateTime.now();
+      await _callbacks.onLogout();
+      _log('✅ Logout callback completed successfully');
+      return true;
+    } catch (logoutError) {
+      _log('❌ Logout callback failed: $logoutError');
+      return false;
+    }
   }
 
   /// Handle unauthorized response (401 from onResponse)
@@ -145,7 +187,7 @@ class AuthInterceptor extends QueuedInterceptor {
 
     final currentToken = await _callbacks.getToken();
     if (currentToken == null || currentToken.isEmpty) {
-      _log('❌ No token available for refresh, triggering logout...');
+      _log('❌ No token available for refresh, checking logout eligibility...');
       await _triggerLogoutForResponse(handler, response.requestOptions);
       return;
     }
@@ -162,7 +204,7 @@ class AuthInterceptor extends QueuedInterceptor {
       _log('✅ Automatic token refresh successful, retrying original request...');
       await _retryRequestFromResponse(refreshResult.token!, response.requestOptions, handler);
     } else {
-      _log('❌ Automatic token refresh failed, triggering logout...');
+      _log('❌ Automatic token refresh failed, checking logout eligibility...');
       await _triggerLogoutForResponse(handler, response.requestOptions);
     }
   }
@@ -176,7 +218,7 @@ class AuthInterceptor extends QueuedInterceptor {
 
     final currentToken = await _callbacks.getToken();
     if (currentToken == null || currentToken.isEmpty) {
-      _log('❌ No token available for refresh, triggering logout...');
+      _log('❌ No token available for refresh, checking logout eligibility...');
       await _triggerLogoutForError(handler, err);
       return;
     }
@@ -193,7 +235,7 @@ class AuthInterceptor extends QueuedInterceptor {
       _log('✅ Automatic token refresh successful, retrying original request...');
       await _retryRequestFromError(refreshResult.token!, err, handler);
     } else {
-      _log('❌ Automatic token refresh failed, triggering logout...');
+      _log('❌ Automatic token refresh failed, checking logout eligibility...');
       await _triggerLogoutForError(handler, err);
     }
   }
@@ -203,16 +245,12 @@ class AuthInterceptor extends QueuedInterceptor {
       ResponseInterceptorHandler handler,
       RequestOptions requestOptions
       ) async {
-    try {
-      await _callbacks.onLogout();
-    } catch (logoutError) {
-      _log('❌ Logout callback failed: $logoutError');
-    }
+    final logoutTriggered = await _triggerLogoutWithCooldown();
 
     // Create a proper error response
     final error = DioException(
       requestOptions: requestOptions,
-      error: 'Unauthorized and logout triggered',
+      error: logoutTriggered ? 'Unauthorized and logout triggered' : 'Unauthorized (logout on cooldown)',
       type: DioExceptionType.badResponse,
       response: Response(
         requestOptions: requestOptions,
@@ -228,11 +266,7 @@ class AuthInterceptor extends QueuedInterceptor {
       ErrorInterceptorHandler handler,
       DioException originalError
       ) async {
-    try {
-      await _callbacks.onLogout();
-    } catch (logoutError) {
-      _log('❌ Logout callback failed: $logoutError');
-    }
+    await _triggerLogoutWithCooldown();
     handler.next(originalError);
   }
 
@@ -530,11 +564,31 @@ class AuthInterceptor extends QueuedInterceptor {
   /// Check if token refresh is currently in progress
   bool get isRefreshing => _isRefreshing;
 
+  /// Get the time when logout was last triggered (null if never triggered)
+  DateTime? get lastLogoutTime => _lastLogoutTime;
+
+  /// Get remaining cooldown time for logout (null if no cooldown active)
+  Duration? get logoutCooldownRemaining {
+    if (_lastLogoutTime == null) return null;
+
+    final timeSinceLastLogout = DateTime.now().difference(_lastLogoutTime!);
+    final remainingCooldown = _config.logoutCooldown - timeSinceLastLogout;
+
+    return remainingCooldown.isNegative ? null : remainingCooldown;
+  }
+
+  /// Manually reset logout cooldown (useful for testing or specific scenarios)
+  void resetLogoutCooldown() {
+    _lastLogoutTime = null;
+    _log('🔄 Logout cooldown manually reset');
+  }
+
   /// Clear any pending state (useful for testing or cleanup)
   void clear() {
     _clearQueuedAuthRequests();
     _isRefreshing = false;
     _refreshCompleter?.complete(null);
     _refreshCompleter = null;
+    _lastLogoutTime = null;
   }
 }
