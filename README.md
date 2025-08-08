@@ -23,7 +23,7 @@ A powerful and feature-rich HTTP client for Flutter and Dart, built on top of Di
 - [Request Encryption](#-request-encryption)
 - [Error Handling](#-error-handling)
 - [Advanced Configuration](#-advanced-configuration)
-- [Examples](#-examples)
+- [Real-World Examples](#-real-world-examples)
 - [API Reference](#-api-reference)
 
 ## 📦 Installation
@@ -142,10 +142,165 @@ final customNetGuard = NetGuard.withOptions(
 
 NetGuard provides powerful authentication management with automatic token refresh and logout handling.
 
-### Basic Authentication Setup
+### Production-Ready Authentication Setup
 
 ```dart
-class AuthService {
+class ApiClient extends GetxService {
+  final StorageManager sharedPreferences;
+  final NetGuard _netGuard = NetGuard();
+  
+  ApiClient({required this.sharedPreferences});
+  
+  Future<void> init() async {
+    // Configure base options
+    _netGuard.options.baseUrl = 'https://api.yourapp.com';
+    _netGuard.options.connectTimeout = const Duration(seconds: 10);
+    _netGuard.options.receiveTimeout = const Duration(seconds: 10);
+    _netGuard.options.sendTimeout = const Duration(seconds: 10);
+    
+    // Network configuration
+    _netGuard.options.handleNetwork = true;
+    _netGuard.options.autoRetryOnNetworkRestore = true;
+    _netGuard.options.maxNetworkRetries = 3;
+    _netGuard.options.throwOnOffline = true;
+    
+    // Get stored tokens
+    String? storedAccessToken = await sharedPreferences.getToken();
+    String? storedRefreshToken = await sharedPreferences.getRefToken();
+    
+    print('🔧 Initializing with stored tokens:');
+    print('   - Access Token: ${_maskToken(storedAccessToken)}');
+    print('   - Refresh Token: ${_maskToken(storedRefreshToken)}');
+    
+    // Configure authentication with callbacks
+    _netGuard.configureAuth(
+      callbacks: AdvanceAuthCallbacks(
+        initialToken: storedAccessToken,
+        initialRefreshToken: storedRefreshToken,
+        onRefreshToken: _handleTokenRefresh,
+        onTokenRefreshed: _handleTokenRefreshed,
+        onLogout: _handleLogout,
+      ),
+      config: const AuthConfig(
+        enableLogging: false,
+        maxRetryAttempts: 1,
+        tokenHeaderName: 'Authorization',
+        tokenPrefix: 'Bearer ',
+        autoRefresh: true,
+        retryDelay: Duration(seconds: 60),
+      ),
+    );
+  }
+  
+  Future<String?> _handleTokenRefresh() async {
+    print('🔄 Token refresh initiated');
+    
+    try {
+      String? currentRefreshToken = await sharedPreferences.getRefToken();
+      
+      if (currentRefreshToken == null || currentRefreshToken.isEmpty) {
+        print('❌ No refresh token available');
+        return null;
+      }
+      
+      print('📞 Making refresh request...');
+      
+      // Create temporary instance for refresh to avoid circular calls
+      final tempDio = NetGuard.withOptions(
+        baseUrl: _netGuard.options.baseUrl,
+      );
+      
+      final response = await tempDio.post(
+        "/api/v1/refresh",
+        data: {"refresh_token": currentRefreshToken},
+        options: Options(
+          extra: {'isRefresh': true},
+          headers: {'Content-Type': 'application/json'},
+        ),
+      );
+      
+      if (response.statusCode == 200 && response.data != null) {
+        final data = response.data;
+        String newAccessToken = data['data']['_token']['access_token'] ?? '';
+        String newRefreshToken = data['data']['_token']['refresh_token'] ?? currentRefreshToken;
+        
+        if (newAccessToken.isNotEmpty) {
+          print('✅ Token refresh successful');
+          
+          // Store new tokens
+          await sharedPreferences.setToken(newAccessToken);
+          await sharedPreferences.setRefToken(newRefreshToken);
+          
+          return newAccessToken;
+        }
+      }
+      
+      print('❌ Token refresh failed: invalid response');
+      return null;
+      
+    } catch (e) {
+      print('❌ Token refresh error: $e');
+      if (e is DioException) {
+        print('   Status Code: ${e.response?.statusCode}');
+        print('   Response Data: ${e.response?.data}');
+      }
+      return null;
+    }
+  }
+  
+  Future<void> _handleTokenRefreshed(String newToken) async {
+    print('💾 Token refreshed - storing new token');
+    await sharedPreferences.setToken(newToken);
+  }
+  
+  Future<void> _handleLogout() async {
+    print('👋 Logout triggered - clearing tokens');
+    
+    // Clear tokens from storage
+    await sharedPreferences.setToken('');
+    await sharedPreferences.setRefToken('');
+    
+    // Show logout message
+    Get.showSnackbar(GetSnackBar(
+      title: '',
+      message: 'Session expired. Please login again.',
+      duration: const Duration(seconds: 3),
+    ));
+    
+    // Navigate to login
+    Get.offAllNamed(RouteConstants.loginScreen);
+  }
+  
+  /// Update tokens after successful login
+  Future<void> updateTokens(String accessToken, String refreshToken) async {
+    print("🔄 Updating tokens...");
+    
+    // Store in preferences
+    await sharedPreferences.setToken(accessToken);
+    await sharedPreferences.setRefToken(refreshToken);
+    
+    // Update NetGuard auth tokens
+    await _netGuard.updateAuthTokens(
+      accessToken: accessToken, 
+      refreshToken: refreshToken
+    );
+    
+    print("✅ Tokens updated successfully");
+  }
+  
+  String _maskToken(String? token) {
+    if (token == null || token.isEmpty) return 'EMPTY';
+    return token.length > 20 ? '${token.substring(0, 20)}...' : token;
+  }
+}
+```
+
+### Simple Authentication Setup
+
+For simpler applications, you can use a more straightforward approach:
+
+```dart
+class SimpleAuthService {
   final NetGuard _netGuard = NetGuard();
   
   void configureAuth() {
@@ -153,117 +308,39 @@ class AuthService {
       callbacks: AdvanceAuthCallbacks(
         initialToken: 'your_access_token',
         initialRefreshToken: 'your_refresh_token',
-        onRefreshToken: _refreshToken,
-        onTokenRefreshed: _onTokenRefreshed,
-        onLogout: _onLogout,
+        onRefreshToken: () async {
+          // Simple refresh logic
+          final response = await _netGuard.post('/auth/refresh', data: {
+            'refresh_token': await getStoredRefreshToken(),
+          });
+          return response.data['access_token'];
+        },
+        onTokenRefreshed: (newToken) async {
+          await storeToken(newToken);
+        },
+        onLogout: () async {
+          await clearTokens();
+          navigateToLogin();
+        },
       ),
       config: const AuthConfig(
         enableLogging: true,
-        tokenHeaderName: 'Authorization',
-        tokenPrefix: 'Bearer ',
-        maxRetryAttempts: 2,
         autoRefresh: true,
+        maxRetryAttempts: 2,
       ),
     );
-  }
-  
-  Future<String?> _refreshToken() async {
-    try {
-      // Make refresh token API call
-      final refreshClient = NetGuard.withOptions(
-        baseUrl: _netGuard.options.baseUrl,
-      );
-      
-      final response = await refreshClient.post('/auth/refresh', data: {
-        'refresh_token': await _getStoredRefreshToken(),
-      });
-      
-      if (response.statusCode == 200) {
-        return response.data['access_token'];
-      }
-      return null;
-    } catch (e) {
-      print('Token refresh failed: $e');
-      return null;
-    }
-  }
-  
-  Future<void> _onTokenRefreshed(String newToken) async {
-    // Store the new token
-    await _storeToken(newToken);
-    print('Token refreshed and stored');
-  }
-  
-  Future<void> _onLogout() async {
-    // Clear stored tokens
-    await _clearTokens();
-    // Navigate to login screen
-    NavigationService.navigateToLogin();
   }
 }
 ```
 
-### Advanced Authentication Configuration
-
-```dart
-// More customized auth configuration
-_netGuard.configureAuth(
-  callbacks: AdvanceAuthCallbacks(
-    initialToken: initialAccessToken,
-    initialRefreshToken: initialRefreshToken,
-    onRefreshToken: () async {
-      // Your custom refresh logic
-      return await performTokenRefresh();
-    },
-    onTokenRefreshed: (newToken) async {
-      // Handle new token
-      await updateStoredToken(newToken);
-      // Update UI state if needed
-      authProvider.updateToken(newToken);
-    },
-    onLogout: () async {
-      // Custom logout logic
-      await clearUserData();
-      await navigateToLogin();
-    },
-  ),
-  config: const AuthConfig(
-    enableLogging: true,
-    tokenHeaderName: 'Authorization',
-    tokenPrefix: 'Bearer ',
-    maxRetryAttempts: 3,
-    retryDelay: Duration(seconds: 1),
-    autoRefresh: true,
-    logoutCooldown: Duration(minutes: 2),
-  ),
-);
-```
-
-### Manual Token Management
-
-```dart
-// Update tokens manually
-await _netGuard.updateAuthTokens(
-  accessToken: 'new_access_token',
-  refreshToken: 'new_refresh_token',
-);
-
-// Check authentication status
-final isAuthenticated = await _netGuard.isAuthenticated();
-
-// Get auth status details
-final authStatus = _netGuard.authStatus;
-print('Auth configured: ${authStatus['configured']}');
-print('Token refreshing: ${authStatus['isRefreshing']}');
-```
-
 ## 🌐 Network Handling
 
-NetGuard can intelligently handle network connectivity issues with automatic queuing and retry mechanisms.
+NetGuard intelligently handles network connectivity with automatic queuing and retry mechanisms.
 
-### Enable Network Handling
+### Production Network Configuration
 
 ```dart
+// Enable comprehensive network handling
 final netGuard = NetGuard.withOptions(
   baseUrl: 'https://api.example.com',
   handleNetwork: true,
@@ -276,28 +353,20 @@ final netGuard = NetGuard.withOptions(
 ### Network Status Monitoring
 
 ```dart
-class NetworkAwareWidget extends StatefulWidget {
-  @override
-  _NetworkAwareWidgetState createState() => _NetworkAwareWidgetState();
-}
-
-class _NetworkAwareWidgetState extends State<NetworkAwareWidget> {
+class NetworkAwareService {
   final NetGuard _netGuard = NetGuard.instance;
+  StreamSubscription<NetworkStatus>? _networkSubscription;
   
-  @override
-  void initState() {
-    super.initState();
-    
-    // Listen to network status changes
-    _netGuard.statusStream.listen((status) {
+  void initNetworkMonitoring() {
+    _networkSubscription = _netGuard.statusStream.listen((status) {
       switch (status) {
         case NetworkStatus.online:
-          print('✅ Network is online');
-          _showSnackBar('Connected to internet');
+          print('✅ Network restored - processing queued requests');
+          _showSnackBar('Connected to internet', Colors.green);
           break;
         case NetworkStatus.offline:
-          print('❌ Network is offline');
-          _showSnackBar('No internet connection');
+          print('❌ Network lost - queuing requests');
+          _showSnackBar('No internet connection', Colors.red);
           break;
         case NetworkStatus.unknown:
           print('❓ Network status unknown');
@@ -306,44 +375,22 @@ class _NetworkAwareWidgetState extends State<NetworkAwareWidget> {
     });
   }
   
-  Future<void> _makeNetworkAwareRequest() async {
+  Future<ApiResponse> fetchDataWithNetworkHandling() async {
     try {
-      // This request will be automatically queued if offline
-      final response = await _netGuard.get('/data');
+      final response = await _netGuard.get('/api/data');
       
-      // Handle response
-      setState(() {
-        data = response.data;
-      });
+      return ApiResponse.success(response.data);
     } catch (e) {
       if (e is DioException && e.response?.statusCode == 503) {
-        // Handle offline scenario
-        _showSnackBar('Request queued - will retry when online');
+        // Request was queued due to network issues
+        return ApiResponse.queued('Request queued - will retry when online');
       }
+      return ApiResponse.error(e.toString());
     }
   }
   
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Column(
-        children: [
-          // Network status indicator
-          Container(
-            color: _netGuard.isOnline ? Colors.green : Colors.red,
-            child: Text(
-              _netGuard.isOnline ? 'Online' : 'Offline',
-              style: TextStyle(color: Colors.white),
-            ),
-          ),
-          
-          // Your content
-          ElevatedButton(
-            onPressed: _makeNetworkAwareRequest,
-            child: Text('Make Request'),
-          ),
-        ],
-      ),
-    );
+  void dispose() {
+    _networkSubscription?.cancel();
   }
 }
 ```
@@ -351,476 +398,455 @@ class _NetworkAwareWidgetState extends State<NetworkAwareWidget> {
 ### Manual Network Operations
 
 ```dart
-// Check network status
+// Check current network status
 if (_netGuard.isOnline) {
-  // Make request
+  await makeRequest();
 } else {
-  // Handle offline state
+  showOfflineMessage();
 }
 
-// Get detailed network info
+// Get network information
 final networkInfo = _netGuard.networkInfo;
 print('Network status: ${networkInfo['status']}');
-print('Is monitoring: ${networkInfo['isMonitoring']}');
+print('Queued requests: ${_netGuard.queuedRequestsCount}');
 
 // Manually refresh network status
 await _netGuard.refreshNetworkStatus();
-
-// Get queued requests count
-print('Queued requests: ${_netGuard.queuedRequestsCount}');
 ```
 
 ## 💾 Caching
 
-NetGuard provides intelligent caching that works across all platforms (mobile, web, desktop).
+NetGuard provides intelligent caching that works across all platforms.
 
-### Enable Caching
-
-```dart
-final netGuard = NetGuard.withOptions(
-  baseUrl: 'https://api.example.com',
-  cacheDuration: const Duration(minutes: 10),
-  maxCacheSize: 100,
-);
-
-// Use cache in requests
-final response = await netGuard.get('/posts', useCache: true);
-```
-
-### Cache Management
+### Smart Caching Implementation
 
 ```dart
-// Check cache status
-final cacheStats = CacheManager.getStats();
-print('Platform: ${cacheStats['platform']}');
-print('Cached entries: ${cacheStats['entryCount']}');
-print('Storage type: ${cacheStats['storage']}');
-
-// Clear all cache
-await CacheManager.clearAll();
-
-// Check if cache is initialized
-if (CacheManager.isInitialized) {
-  print('Cache is ready');
+class DataService {
+  final NetGuard _netGuard = NetGuard.withOptions(
+    baseUrl: 'https://api.example.com',
+    cacheDuration: const Duration(minutes: 10),
+    maxCacheSize: 100,
+  );
+  
+  // Get data with caching
+  Future<List<Post>> getPosts({bool forceRefresh = false}) async {
+    final response = await _netGuard.get(
+      '/posts',
+      useCache: !forceRefresh, // Use cache unless force refresh
+    );
+    
+    return (response.data as List)
+        .map((json) => Post.fromJson(json))
+        .toList();
+  }
+  
+  // Cache management
+  Future<void> clearCache() async {
+    await CacheManager.clearAll();
+  }
+  
+  void printCacheStats() {
+    final stats = CacheManager.getStats();
+    print('Cache entries: ${stats['entryCount']}');
+    print('Platform: ${stats['platform']}');
+    print('Storage type: ${stats['storage']}');
+  }
 }
-```
-
-### Background Cache Updates
-
-When caching is enabled, NetGuard automatically performs background updates:
-
-```dart
-// This will:
-// 1. Return cached data immediately if available
-// 2. Fetch fresh data in background
-// 3. Update cache with new data
-final response = await netGuard.get('/posts', useCache: true);
 ```
 
 ## 🔒 Request Encryption
 
-Secure your requests with built-in encryption capabilities.
-
-### Basic Encryption
+Secure sensitive requests with built-in encryption.
 
 ```dart
-// Enable encryption for a request
-final response = await netGuard.post(
-  '/sensitive-data',
-  data: {
-    'personal_info': 'sensitive data',
-    'user_id': 12345,
-  },
-  encryptBody: true, // Encrypts the request body
-);
-```
-
-### Custom Encryption Function
-
-```dart
-// Define custom encryption
-netGuard.options.encryptionFunction = (dynamic body) {
-  final json = jsonEncode(body);
+class SecureApiService {
+  final NetGuard _netGuard = NetGuard();
   
-  // Your custom encryption logic
-  final encrypted = MyEncryption.encrypt(json);
+  void configureEncryption() {
+    // Custom encryption function
+    _netGuard.options.encryptionFunction = (dynamic body) {
+      final json = jsonEncode(body);
+      return MyEncryption.encrypt(json); // Your encryption logic
+    };
+  }
   
-  return encrypted;
-};
-
-// Use custom encryption
-final response = await netGuard.post('/data', 
-  data: sensitiveData,
-  encryptBody: true,
-);
+  Future<Response> sendSensitiveData(Map<String, dynamic> data) async {
+    return await _netGuard.post(
+      '/sensitive-endpoint',
+      data: data,
+      encryptBody: true, // Enable encryption for this request
+    );
+  }
+}
 ```
 
 ## 🚨 Error Handling
 
-NetGuard provides comprehensive error handling with user-friendly messages.
+NetGuard provides comprehensive error handling with detailed response management.
 
-### Basic Error Handling
+### Production Error Handling
 
 ```dart
-try {
-  final response = await netGuard.get('/endpoint');
-  // Handle success
-} on DioException catch (e) {
-  // NetGuard extends Dio exceptions with additional helpers
-  
-  if (e.isNetworkError) {
-    print('Network error: ${e.userFriendlyMessage}');
-  } else if (e.isTimeoutError) {
-    print('Timeout error: ${e.userFriendlyMessage}');
-  } else if (e.isClientError) {
-    print('Client error (4xx): ${e.userFriendlyMessage}');
-  } else if (e.isServerError) {
-    print('Server error (5xx): ${e.userFriendlyMessage}');
-  } else {
-    print('Other error: ${e.userFriendlyMessage}');
+class ApiClient {
+  Future<Response> safeRequest({
+    required String method,
+    required String url,
+    dynamic data,
+    Map<String, dynamic>? queryParams,
+    Options? options,
+    bool bypass = false,
+    bool showError = true,
+    bool useCache = false,
+  }) async {
+    try {
+      final response = await _performRequest(
+        method: method,
+        url: url,
+        data: data,
+        queryParams: queryParams,
+        options: options,
+        useCache: useCache,
+      );
+
+      return await _handleResponse(
+        response,
+        url,
+        bypass: bypass,
+        showError: showError,
+      );
+    } catch (e) {
+      print('❌ Request failed: $e');
+      rethrow;
+    }
   }
-} catch (e) {
-  print('Unexpected error: $e');
+  
+  Future<Response> _handleResponse(
+    Response response, 
+    String uri, {
+    bool bypass = false,
+    bool showError = true,
+  }) async {
+    final statusCode = response.statusCode ?? 0;
+    final body = response.data;
+    String message = '';
+
+    switch (statusCode) {
+      case 400:
+      case >= 402 && < 500:
+        message = body is Map ? 
+          (body['message']?.toString() ?? 'Client error') : 
+          'Bad request';
+        if (showError) _showError(message);
+        break;
+
+      case 401:
+        message = body is Map ? 
+          (body['message']?.toString() ?? 'Unauthorized') : 
+          'Authentication required';
+        if (showError) _showError(message);
+        break;
+
+      case 500:
+        message = 'Internal server error occurred';
+        if (showError) _showError(message);
+        break;
+
+      case 200:
+        // Handle nested error codes in successful responses
+        if (body is Map && (body['statusCode'] ?? 0) > 401) {
+          message = body['message']?.toString() ?? 'Unknown issue';
+          if (!bypass && showError) _showError(message);
+        }
+        break;
+
+      default:
+        if (statusCode >= 400) {
+          message = 'HTTP Error: $statusCode';
+          if (showError) _showError(message);
+        }
+    }
+
+    print('====> API Response: [$statusCode] $uri');
+    return response;
+  }
 }
 ```
 
-### Advanced Error Handling
+### User-Friendly Error Messages
 
 ```dart
-class ApiErrorHandler {
-  static void handleError(DioException error) {
-    switch (error.type) {
-      case DioExceptionType.connectionTimeout:
-        _showError('Connection timeout - please check your internet');
-        break;
-      case DioExceptionType.connectionError:
-        _showError('No internet connection');
-        break;
-      case DioExceptionType.badResponse:
-        _handleBadResponse(error);
-        break;
-      default:
-        _showError(error.userFriendlyMessage);
-    }
-  }
-  
-  static void _handleBadResponse(DioException error) {
-    final statusCode = error.response?.statusCode;
-    final message = error.response?.data?['message'] ?? 'Unknown error';
+class ErrorHandler {
+  static void handleApiError(DioException error) {
+    String userMessage = '';
     
-    switch (statusCode) {
-      case 401:
-        // Handle unauthorized - NetGuard will auto-refresh if configured
-        _showError('Please log in again');
-        break;
-      case 403:
-        _showError('Access denied: $message');
-        break;
-      case 404:
-        _showError('Resource not found');
-        break;
-      case 422:
-        _handleValidationErrors(error.response?.data);
-        break;
-      default:
-        _showError('Server error: $message');
+    if (error.isNetworkError) {
+      userMessage = 'No internet connection. Please check your network.';
+    } else if (error.isTimeoutError) {
+      userMessage = 'Request timed out. Please try again.';
+    } else if (error.isClientError) {
+      userMessage = 'Invalid request. Please check your input.';
+    } else if (error.isServerError) {
+      userMessage = 'Server error occurred. Please try again later.';
+    } else {
+      userMessage = error.userFriendlyMessage;
     }
+    
+    _showUserError(userMessage);
   }
 }
 ```
 
 ## ⚙️ Advanced Configuration
 
-### Complete Configuration Example
+### Complete Production Setup
 
 ```dart
-final netGuard = NetGuard.withOptions(
-  // Basic configuration
-  baseUrl: 'https://api.example.com',
-  connectTimeout: const Duration(seconds: 30),
-  receiveTimeout: const Duration(seconds: 30),
-  sendTimeout: const Duration(seconds: 30),
-  
-  // Headers
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-    'User-Agent': 'MyApp/1.0',
-  },
-  
-  // Caching
-  cacheDuration: const Duration(minutes: 15),
-  maxCacheSize: 200,
-  
-  // Network handling
-  handleNetwork: true,
-  autoRetryOnNetworkRestore: true,
-  maxNetworkRetries: 5,
-  throwOnOffline: false,
-  
-  // Custom encryption
-  encryptionFunction: (body) {
-    return MyCustomEncryption.encrypt(jsonEncode(body));
-  },
-);
-```
-
-### Interceptors
-
-```dart
-// Add custom interceptors
-netGuard.interceptors.add(
-  InterceptorsWrapper(
-    onRequest: (options, handler) {
-      // Add custom headers
-      options.headers['X-Request-ID'] = generateRequestId();
-      options.headers['X-Timestamp'] = DateTime.now().toIso8601String();
-      
-      print('🚀 Request: ${options.method} ${options.uri}');
-      return handler.next(options);
-    },
-    onResponse: (response, handler) {
-      print('✅ Response: ${response.statusCode} ${response.requestOptions.uri}');
-      return handler.next(response);
-    },
-    onError: (error, handler) {
-      print('❌ Error: ${error.message}');
-      
-      // Custom error handling
-      if (error.response?.statusCode == 429) {
-        // Handle rate limiting
-        return handler.reject(error);
-      }
-      
-      return handler.next(error);
-    },
-  ),
-);
-```
-
-### SSL Configuration
-
-```dart
-import 'dart:io';
-import 'package:dio/io.dart';
-
-// Configure SSL for mobile/desktop
-(netGuard.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
-  final client = HttpClient();
-  
-  // Accept all certificates (for development only)
-  client.badCertificateCallback = (cert, host, port) => true;
-  
-  // Custom certificate validation
-  client.badCertificateCallback = (cert, host, port) {
-    return host == 'trusted-domain.com';
-  };
-  
-  // Set timeouts
-  client.idleTimeout = const Duration(seconds: 30);
-  
-  return client;
-};
-```
-
-## 📖 Examples
-
-### Complete Login Flow with Authentication
-
-```dart
-class AuthService {
-  final NetGuard _netGuard = NetGuard();
+class ProductionApiClient {
+  late final NetGuard _netGuard;
   
   Future<void> initialize() async {
-    _netGuard.options.baseUrl = 'https://api.myapp.com';
+    _netGuard = NetGuard.withOptions(
+      // Basic configuration
+      baseUrl: 'https://api.yourapp.com',
+      connectTimeout: const Duration(seconds: 30),
+      receiveTimeout: const Duration(seconds: 30),
+      sendTimeout: const Duration(seconds: 30),
+      
+      // Headers
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': 'YourApp/1.0.0',
+      },
+      
+      // Caching
+      cacheDuration: const Duration(minutes: 15),
+      maxCacheSize: 200,
+      
+      // Network handling
+      handleNetwork: true,
+      autoRetryOnNetworkRestore: true,
+      maxNetworkRetries: 5,
+      throwOnOffline: false,
+    );
     
-    // Load stored tokens
-    final accessToken = await _getStoredToken();
-    final refreshToken = await _getStoredRefreshToken();
+    // Configure SSL
+    _configureSsl();
     
-    if (accessToken != null) {
-      _configureAuth(accessToken, refreshToken);
-    }
+    // Add interceptors
+    _setupInterceptors();
   }
   
-  Future<LoginResult> login(String email, String password) async {
-    try {
-      final response = await _netGuard.post('/auth/login', data: {
-        'email': email,
-        'password': password,
-      });
+  void _configureSsl() {
+    (_netGuard.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
+      final client = HttpClient();
       
-      final accessToken = response.data['access_token'];
-      final refreshToken = response.data['refresh_token'];
+      // For production - validate certificates properly
+      client.badCertificateCallback = (cert, host, port) {
+        // Add your certificate validation logic
+        return host == 'api.yourapp.com';
+      };
       
-      // Store tokens
-      await _storeTokens(accessToken, refreshToken);
-      
-      // Configure authentication
-      _configureAuth(accessToken, refreshToken);
-      
-      return LoginResult.success();
-    } catch (e) {
-      return LoginResult.failure(e.toString());
-    }
+      client.idleTimeout = const Duration(seconds: 30);
+      return client;
+    };
   }
   
-  void _configureAuth(String accessToken, String? refreshToken) {
-    _netGuard.configureAuth(
-      callbacks: AdvanceAuthCallbacks(
-        initialToken: accessToken,
-        initialRefreshToken: refreshToken,
-        onRefreshToken: () async {
-          final storedRefreshToken = await _getStoredRefreshToken();
-          if (storedRefreshToken == null) return null;
+  void _setupInterceptors() {
+    _netGuard.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          // Add request ID and timestamp
+          options.headers['X-Request-ID'] = _generateRequestId();
+          options.headers['X-Timestamp'] = DateTime.now().toIso8601String();
           
-          try {
-            final response = await _netGuard.post('/auth/refresh', data: {
-              'refresh_token': storedRefreshToken,
-            });
-            
-            return response.data['access_token'];
-          } catch (e) {
-            return null;
+          print('📤 ${options.method} ${options.path}');
+          return handler.next(options);
+        },
+        onResponse: (response, handler) {
+          print('📥 ${response.statusCode} ${response.requestOptions.path}');
+          return handler.next(response);
+        },
+        onError: (error, handler) {
+          print('❌ ${error.response?.statusCode} - ${error.message}');
+          
+          // Custom error handling
+          if (error.response?.statusCode == 429) {
+            // Handle rate limiting
+            _handleRateLimit(error);
           }
+          
+          return handler.next(error);
         },
-        onTokenRefreshed: (newToken) async {
-          await _storeToken(newToken);
-        },
-        onLogout: () async {
-          await _clearTokens();
-          // Navigate to login
-          AppRouter.navigateToLogin();
-        },
-      ),
-      config: const AuthConfig(
-        enableLogging: true,
-        autoRefresh: true,
-        maxRetryAttempts: 2,
       ),
     );
-  }
-  
-  Future<void> logout() async {
-    try {
-      await _netGuard.post('/auth/logout');
-    } catch (e) {
-      // Ignore logout errors
-    } finally {
-      await _clearTokens();
-      _netGuard.clearAuth();
-    }
   }
 }
 ```
 
-### Network-Aware Data Service
+## 🏭 Real-World Examples
+
+### Complete Service Implementation
 
 ```dart
-class PostService {
-  final NetGuard _netGuard = NetGuard.withOptions(
-    baseUrl: 'https://api.blog.com',
-    handleNetwork: true,
-    autoRetryOnNetworkRestore: true,
-    maxNetworkRetries: 3,
-    cacheDuration: const Duration(minutes: 5),
-    maxCacheSize: 50,
-  );
+/// Production-ready API service using NetGuard
+class UserService {
+  final NetGuard _netGuard;
+  final StorageManager _storage;
   
-  Future<List<Post>> getPosts({bool forceRefresh = false}) async {
+  UserService(this._netGuard, this._storage);
+  
+  /// Get user profile with caching
+  Future<User> getUserProfile({bool forceRefresh = false}) async {
     try {
       final response = await _netGuard.get(
-        '/posts',
+        '/api/v1/user/profile',
         useCache: !forceRefresh,
       );
       
       if (response.statusCode == 200) {
-        return (response.data as List)
-            .map((json) => Post.fromJson(json))
-            .toList();
+        return User.fromJson(response.data['data']);
       } else if (response.statusCode == 503) {
-        // Network error - request was queued
-        throw NetworkException('No internet connection. Request queued for retry.');
+        throw NetworkException('Request queued - no internet connection');
       }
       
-      throw ApiException('Failed to load posts');
+      throw ApiException('Failed to fetch user profile');
     } catch (e) {
       rethrow;
     }
   }
   
-  Future<Post> createPost(Post post) async {
-    final response = await _netGuard.post(
-      '/posts',
-      data: post.toJson(),
-      encryptBody: true, // Encrypt sensitive data
+  /// Update user profile with encryption
+  Future<User> updateProfile(UpdateProfileRequest request) async {
+    final response = await _netGuard.patch(
+      '/api/v1/user/profile',
+      data: request.toJson(),
+      encryptBody: true, // Encrypt sensitive user data
     );
     
-    return Post.fromJson(response.data);
+    return User.fromJson(response.data['data']);
   }
   
-  Future<void> deletePost(int id) async {
-    await _netGuard.delete('/posts/$id');
+  /// Upload profile image with progress
+  Future<String> uploadProfileImage(
+    File imageFile, {
+    Function(double)? onProgress,
+  }) async {
+    final fileName = imageFile.path.split('/').last;
+    final formData = FormData.fromMap({
+      'image': await MultipartFile.fromFile(
+        imageFile.path,
+        filename: fileName,
+      ),
+      'metadata': jsonEncode({
+        'type': 'profile_image',
+        'uploadedAt': DateTime.now().toIso8601String(),
+      }),
+    });
+    
+    final response = await _netGuard.post(
+      '/api/v1/user/upload-image',
+      data: formData,
+      onSendProgress: (sent, total) {
+        final progress = sent / total;
+        onProgress?.call(progress);
+      },
+    );
+    
+    return response.data['data']['image_url'];
+  }
+  
+  /// Get users list with pagination and caching
+  Future<PaginatedResponse<User>> getUsers({
+    int page = 1,
+    int limit = 20,
+    String? search,
+    bool useCache = true,
+  }) async {
+    final queryParams = <String, dynamic>{
+      'page': page,
+      'limit': limit,
+      if (search != null) 'search': search,
+    };
+    
+    final response = await _netGuard.get(
+      '/api/v1/users',
+      queryParameters: queryParams,
+      useCache: useCache,
+    );
+    
+    return PaginatedResponse<User>.fromJson(
+      response.data,
+      (json) => User.fromJson(json),
+    );
   }
 }
 ```
 
-### File Upload with Progress
+### Login Flow with Complete Authentication
 
 ```dart
-class FileUploadService {
-  final NetGuard _netGuard = NetGuard();
+class AuthService {
+  final NetGuard _netGuard;
+  final StorageManager _storage;
   
-  Future<UploadResult> uploadFile(
-    File file, {
-    Function(double)? onProgress,
-  }) async {
+  AuthService(this._netGuard, this._storage);
+  
+  Future<LoginResult> login(String email, String password) async {
     try {
-      final fileName = file.path.split('/').last;
-      final formData = FormData.fromMap({
-        'file': await MultipartFile.fromFile(
-          file.path,
-          filename: fileName,
-        ),
-        'metadata': jsonEncode({
-          'originalName': fileName,
-          'size': await file.length(),
-          'uploadedAt': DateTime.now().toIso8601String(),
-        }),
+      final response = await _netGuard.post('/api/v1/auth/login', data: {
+        'email': email,
+        'password': password,
+        'device_info': await _getDeviceInfo(),
       });
       
-      final response = await _netGuard.post(
-        '/upload',
-        data: formData,
-        onSendProgress: (sent, total) {
-          final progress = sent / total;
-          onProgress?.call(progress);
-          print('Upload progress: ${(progress * 100).toStringAsFixed(1)}%');
-        },
-      );
+      if (response.statusCode == 200) {
+        final data = response.data['data'];
+        final tokens = data['_token'];
+        
+        final accessToken = tokens['access_token'];
+        final refreshToken = tokens['refresh_token'];
+        
+        // Store tokens
+        await _storage.setToken(accessToken);
+        await _storage.setRefToken(refreshToken);
+        
+        // Update NetGuard tokens
+        await _netGuard.updateAuthTokens(
+          accessToken: accessToken,
+          refreshToken: refreshToken,
+        );
+        
+        return LoginResult.success(User.fromJson(data['user']));
+      }
       
-      return UploadResult.success(response.data['file_url']);
+      return LoginResult.failure('Login failed');
     } catch (e) {
-      return UploadResult.failure(e.toString());
+      if (e is DioException) {
+        final message = e.response?.data?['message'] ?? 'Login failed';
+        return LoginResult.failure(message);
+      }
+      return LoginResult.failure(e.toString());
     }
   }
   
-  Future<void> downloadFile(
-    String url,
-    String savePath, {
-    Function(double)? onProgress,
-  }) async {
-    await _netGuard.download(
-      url,
-      savePath,
-      onReceiveProgress: (received, total) {
-        if (total != -1) {
-          final progress = received / total;
-          onProgress?.call(progress);
-          print('Download progress: ${(progress * 100).toStringAsFixed(1)}%');
-        }
-      },
-    );
+  Future<void> logout() async {
+    try {
+      // Call logout API
+      await _netGuard.post('/api/v1/auth/logout');
+    } catch (e) {
+      // Ignore logout API errors
+      print('Logout API call failed: $e');
+    } finally {
+      // Always clear local data
+      await _clearAuthData();
+    }
+  }
+  
+  Future<void> _clearAuthData() async {
+    await _storage.setToken('');
+    await _storage.setRefToken('');
+    _netGuard.clearAuth();
   }
 }
 ```
@@ -839,33 +865,33 @@ class FileUploadService {
 - `NetGuard.instance` - Get the default instance
 
 #### HTTP Methods
-- `get<T>(path, {...})` - GET request
-- `post<T>(path, {...})` - POST request
-- `put<T>(path, {...})` - PUT request
-- `patch<T>(path, {...})` - PATCH request
-- `delete<T>(path, {...})` - DELETE request
-- `download(url, savePath, {...})` - File download
-- `request<T>(path, {...})` - Generic request
+- `get<T>(path, {queryParameters, options, useCache, ...})` - GET request
+- `post<T>(path, {data, queryParameters, options, encryptBody, ...})` - POST request
+- `put<T>(path, {data, queryParameters, options, ...})` - PUT request
+- `patch<T>(path, {data, queryParameters, options, ...})` - PATCH request
+- `delete<T>(path, {data, queryParameters, options, ...})` - DELETE request
+- `download(url, savePath, {onReceiveProgress, ...})` - File download
+- `request<T>(path, {options, useCache, ...})` - Generic request
 
-#### Authentication
+#### Authentication Methods
 - `configureAuth({callbacks, config})` - Configure authentication
-- `updateAuthTokens({accessToken, refreshToken})` - Update tokens
-- `isAuthenticated()` - Check if authenticated
-- `clearAuth()` - Clear authentication
-- `authStatus` - Get authentication status
+- `updateAuthTokens({accessToken, refreshToken})` - Update tokens manually
+- `isAuthenticated()` - Check authentication status
+- `clearAuth()` - Clear authentication configuration
+- `authStatus` - Get current authentication status
 
-#### Network Handling
-- `networkStatus` - Current network status
-- `isOnline` - Check if online
-- `isOffline` - Check if offline
-- `statusStream` - Network status changes stream
+#### Network Methods
+- `networkStatus` - Current network status (online/offline/unknown)
+- `isOnline` - Boolean indicating if network is available
+- `isOffline` - Boolean indicating if network is unavailable
+- `statusStream` - Stream of network status changes
 - `refreshNetworkStatus()` - Manually refresh network status
-- `queuedRequestsCount` - Number of queued requests
+- `queuedRequestsCount` - Number of requests queued due to network issues
+- `networkInfo` - Detailed network information
 
-### AuthConfig Class
+### Configuration Classes
 
-Configuration for authentication behavior:
-
+#### AuthConfig
 ```dart
 const AuthConfig({
   String tokenHeaderName = 'Authorization',
@@ -878,27 +904,32 @@ const AuthConfig({
 });
 ```
 
-### AdvanceAuthCallbacks Class
-
-Advanced authentication callbacks:
-
+#### AdvanceAuthCallbacks
 ```dart
 AdvanceAuthCallbacks({
   String? initialToken,
   String? initialRefreshToken,
   Future<String?> Function()? onRefreshToken,
-  Future<void> Function(String newToken)? onTokenRefreshed,  
+  Future<void> Function(String newToken)? onTokenRefreshed,
   Future<void> Function()? onLogout,
 });
 ```
 
-### CacheManager Class
+### Cache Management
 
-Static methods for cache management:
+#### CacheManager
+- `CacheManager.getStats()` - Returns cache statistics
+- `CacheManager.clearAll()` - Clears all cached data
+- `CacheManager.isInitialized` - Check if cache system is ready
 
-- `CacheManager.getStats()` - Get cache statistics
-- `CacheManager.clearAll()` - Clear all cached data
-- `CacheManager.isInitialized` - Check if cache is ready
+### Error Extensions
+
+NetGuard extends DioException with helpful properties:
+- `isNetworkError` - Network connectivity issues
+- `isTimeoutError` - Request timeout
+- `isClientError` - 4xx status codes
+- `isServerError` - 5xx status codes
+- `userFriendlyMessage` - Human-readable error message
 
 ## 🤝 Contributing
 
@@ -911,13 +942,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🙏 Acknowledgments
 
 - Built on top of the excellent [Dio](https://pub.dev/packages/dio) HTTP client
-- Inspired by the need for a more feature-rich HTTP client for Flutter applications
+- Inspired by real-world Flutter application requirements
 
 ## 📞 Support
 
-- 📖 [Documentation](https://pub.dev/documentation/netguard/latest/)
-- 🐛 [Issue Tracker](https://github.com/yourorg/netguard/issues)
-- 💬 [Discussions](https://github.com/yourorg/netguard/discussions)
+- 🐛 [Issue Tracker](https://github.com/nitesh695/NetGuard/issues)
 
 ---
 

@@ -17,7 +17,7 @@ class ApiClient extends getx.GetxService {
 
   init() async {
     // Configure base options first
-    _netGuard.options.baseUrl = '';
+    _netGuard.options.baseUrl = 'https://example.com';
     _netGuard.options.connectTimeout = const Duration(seconds: 10);
     _netGuard.options.receiveTimeout = const Duration(seconds: 10);
     _netGuard.options.sendTimeout = const Duration(seconds: 10);
