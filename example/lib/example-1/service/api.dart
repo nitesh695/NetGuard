@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:example/constants/routes_constants.dart';
-import 'package:example/utils/route.dart';
 import 'package:get/get.dart' as getx;
 import 'package:netguard/netguard.dart';
+import '../constants/routes_constants.dart';
+import '../utils/route.dart';
 import '../utils/storage_manager.dart';
 
 class ApiClient extends getx.GetxService {

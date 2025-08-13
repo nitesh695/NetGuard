@@ -1,19 +1,18 @@
 import 'dart:ui';
-import 'package:example/screens/dashboard/dashboard_screen.dart';
-import 'package:example/service/api.dart';
-import 'package:example/utils/storage_manager.dart';
-
-import '../service/di_container.dart' as di;
-import 'package:example/screens/Auth/login_screen.dart';
-import 'package:example/utils/routes_list.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'example-1/screens/Auth/login_screen.dart';
+import 'example-1/screens/dashboard/dashboard_screen.dart';
+import 'example-1/service/api.dart';
+import 'example-1/service/di_container.dart' as di;
+import 'example-1/utils/routes_list.dart';
+import 'example-1/utils/storage_manager.dart';
 
 
 void main() async{
   WidgetsFlutterBinding.ensureInitialized();
   await di.init();
-  runApp(MyApp());
+  runApp(MyApp()); ///Or  runApp(const NetGuardExampleApp());
 }
 
 class MyApp extends StatefulWidget {

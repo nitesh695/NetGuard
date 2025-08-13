@@ -1,7 +1,6 @@
-import 'package:example/screens/Auth/login_screen.dart';
 import 'package:flutter/material.dart';
-
 import '../constants/routes_constants.dart';
+import '../screens/Auth/login_screen.dart';
 import '../screens/dashboard/dashboard_screen.dart';
 
 

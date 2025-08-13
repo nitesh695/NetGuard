@@ -1,6 +1,7 @@
-import 'package:example/screens/Auth/controllers/auth.controller.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+
+import '../Auth/controllers/auth.controller.dart';
 
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key});

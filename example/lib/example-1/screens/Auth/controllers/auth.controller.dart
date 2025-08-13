@@ -1,9 +1,8 @@
-import 'package:example/constants/routes_constants.dart';
-import 'package:example/service/api.dart';
-import 'package:example/utils/route.dart';
-import 'package:example/utils/storage_manager.dart';
-import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import '../../../constants/routes_constants.dart';
+import '../../../service/api.dart';
+import '../../../utils/route.dart';
+import '../../../utils/storage_manager.dart';
 
 
 class AuthController extends GetxController implements GetxService{
