@@ -1,25 +1,25 @@
 import 'dart:convert';
-import 'dart:html' as html;
-
+import 'package:hive/hive.dart';
 import '../../netguard.dart';
 import '../utils/util.dart';
 
 class CacheManagerImpl {
+  static const String _boxName = 'netguard_web_cache';
   static const String _keyPrefix = 'netguard_cache_';
   static bool _isInitialized = false;
   static String? _initializationError;
 
-  /// Initialize web cache (always succeeds unless localStorage is disabled)
+  /// Initialize Hive cache for web
   static Future<bool> initialize(NetGuardOptions options) async {
     try {
       _initializationError = null;
 
-      // Test localStorage availability
-      html.window.localStorage['netguard_test'] = 'test';
-      html.window.localStorage.remove('netguard_test');
+      if (!_isInitialized) {
+        await Hive.openBox<String>(_boxName);
+      }
 
       _isInitialized = true;
-      logger('✅ NetGuard Web Cache initialized successfully');
+      logger('✅ NetGuard Web Cache (Hive) initialized successfully');
       return true;
     } catch (e) {
       _isInitialized = false;
@@ -54,15 +54,14 @@ class CacheManagerImpl {
       if (!_isInitialized) return;
 
       final key = _generateKey(path, query);
-      final entry = {
+      final entry = jsonEncode({
         'data': response,
         'timestamp': DateTime.now().millisecondsSinceEpoch,
-      };
+      });
 
-      html.window.localStorage[key] = jsonEncode(entry);
+      final box = Hive.box<String>(_boxName);
+      await box.put(key, entry);
       await _enforceMaxSize(options);
-
-      // logger('💾 Web cached response for: $path');
     } catch (e) {
       logger('❌ NetGuard Web Cache Save Error: $e');
     }
@@ -79,7 +78,8 @@ class CacheManagerImpl {
       if (!_isInitialized) return null;
 
       final key = _generateKey(path, query);
-      final cachedString = html.window.localStorage[key];
+      final box = Hive.box<String>(_boxName);
+      final cachedString = box.get(key);
       if (cachedString == null) {
         logger('🔍 Web cache miss for: $path');
         return null;
@@ -91,7 +91,7 @@ class CacheManagerImpl {
       final age = DateTime.now().millisecondsSinceEpoch - timestamp;
 
       if (age > expiry.inMilliseconds) {
-        html.window.localStorage.remove(key);
+        await box.delete(key);
         logger('⏰ Web cache expired for: $path');
         return null;
       }
@@ -104,25 +104,23 @@ class CacheManagerImpl {
     }
   }
 
-  /// Enforce maximum cache size for web storage
+  /// Enforce maximum cache size
   static Future<void> _enforceMaxSize(NetGuardOptions options) async {
     try {
       final maxSize = options.maxCacheSize ?? 100;
-      final cacheKeys = html.window.localStorage.keys
-          .where((key) => key.startsWith(_keyPrefix))
-          .toList();
+      final box = Hive.box<String>(_boxName);
+      final cacheKeys = box.keys.where((key) => key.toString().startsWith(_keyPrefix)).toList();
 
       if (cacheKeys.length <= maxSize) return;
 
       final entries = <String, Map<String, dynamic>>{};
       for (var key in cacheKeys) {
-        final value = html.window.localStorage[key];
+        final value = box.get(key);
         if (value != null) {
           try {
-            entries[key] = jsonDecode(value);
-          } catch (e) {
-            // Remove invalid entries
-            html.window.localStorage.remove(key);
+            entries[key.toString()] = jsonDecode(value);
+          } catch (_) {
+            await box.delete(key);
           }
         }
       }
@@ -132,7 +130,7 @@ class CacheManagerImpl {
 
       final toRemove = sortedKeys.take(entries.length - maxSize);
       for (var entry in toRemove) {
-        html.window.localStorage.remove(entry.key);
+        await box.delete(entry.key);
       }
 
       logger('🧹 Web cache cleanup: removed ${toRemove.length} old entries');
@@ -144,12 +142,11 @@ class CacheManagerImpl {
   /// Clear all cache entries
   static Future<void> clearAll() async {
     try {
-      final keysToRemove = html.window.localStorage.keys
-          .where((key) => key.startsWith(_keyPrefix))
-          .toList();
+      final box = Hive.box<String>(_boxName);
+      final keysToRemove = box.keys.where((key) => key.toString().startsWith(_keyPrefix)).toList();
 
       for (var key in keysToRemove) {
-        html.window.localStorage.remove(key);
+        await box.delete(key);
       }
 
       logger('🗑️ Web cache cleared ${keysToRemove.length} entries');
@@ -163,15 +160,14 @@ class CacheManagerImpl {
 
   /// Get cache statistics
   static Map<String, dynamic> getStats() {
-    final cacheKeys = html.window.localStorage.keys
-        .where((key) => key.startsWith(_keyPrefix))
-        .toList();
+    final box = Hive.box<String>(_boxName);
+    final cacheKeys = box.keys.where((key) => key.toString().startsWith(_keyPrefix)).toList();
 
     return {
       'platform': 'web',
       'isInitialized': _isInitialized,
       'entryCount': cacheKeys.length,
-      'storage': 'localStorage',
+      'storage': 'hive',
       'error': _initializationError,
     };
   }
@@ -182,7 +178,7 @@ class CacheManagerImpl {
       'isInitialized': _isInitialized,
       'initializationError': _initializationError,
       'platform': 'web',
-      'storage': 'localStorage',
+      'storage': 'hive',
     };
   }
 }

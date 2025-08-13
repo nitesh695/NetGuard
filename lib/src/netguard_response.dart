@@ -26,10 +26,10 @@ extension NetGuardResponseExtension<T> on Response<T> {
     return statusCode != null && statusCode! >= 500 && statusCode! < 600;
   }
 
-  /// Get response status message
-  String get statusMessage {
-    return statusMessage ?? 'Unknown';
-  }
+  // /// Get response status message
+  // String get statusMessage {
+  //   return statusMessage ?? 'Unknown';
+  // }
 
   /// Get response content type
   String? get contentType {

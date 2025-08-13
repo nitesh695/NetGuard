@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:netguard/src/utils/util.dart';
 import 'cache_manager.dart';
-import 'models/QueuedRequest.dart';
+import 'models/queued_request.model.dart';
 import 'netguard_options.dart';
 import 'netguard_interceptors.dart';
 import 'network_managers/network_interceptor.dart';
@@ -693,7 +693,6 @@ abstract class NetGuardBase {
     String encrypted = '';
     if (encryptBody) {
       encrypted = this.options.encryptionFunction(data);
-      options ??= Options();
       options.contentType ??= Headers.textPlainContentType;
     }
 

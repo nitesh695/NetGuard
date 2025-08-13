@@ -1,8 +1,5 @@
-import 'dart:convert';
 import 'package:netguard/src/netguard_options.dart';
 
-// Platform detection
-import 'dart:io' if (dart.library.html) 'dart:html' as platform;
 
 // Conditional imports for different platforms
 import 'cache_managers/mobile_cache_manager.dart' if (dart.library.html) 'cache_managers/web_cache_manager.dart' as cache_impl;

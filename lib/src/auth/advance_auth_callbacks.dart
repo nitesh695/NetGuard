@@ -83,7 +83,7 @@ class AdvanceAuthCallbacks implements AuthCallbacks {
     if (_onTokenRefreshed != null) {
       try {
         logger('📞 Calling user-provided onTokenRefreshed callback...');
-        await _onTokenRefreshed!(newToken);
+        await _onTokenRefreshed(newToken);
         logger('✅ onTokenRefreshed callback completed successfully');
       } catch (e) {
         logger('❌ Exception in onTokenRefreshed callback: $e');
@@ -103,7 +103,7 @@ class AdvanceAuthCallbacks implements AuthCallbacks {
     if (_onLogout != null) {
       try {
         logger('📞 Calling user-provided onLogout callback...');
-        await _onLogout!();
+        await _onLogout();
         logger('✅ onLogout callback completed successfully');
       } catch (e) {
         logger('❌ Exception in onLogout callback: $e');
@@ -133,7 +133,7 @@ class AdvanceAuthCallbacks implements AuthCallbacks {
 
   /// Check if has valid token
   bool get hasToken {
-    final hasValidToken = _token != null && _token!.isNotEmpty;
+    final hasValidToken = _token != null && (_token ?? '').isNotEmpty;
     logger('🔍 hasToken check: $hasValidToken (token: ${_token?.substring(0, 20) ?? 'null'}...)');
     return hasValidToken;
   }

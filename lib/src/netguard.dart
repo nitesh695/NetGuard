@@ -11,13 +11,13 @@ class NetGuard extends NetGuardBase {
   final AuthManager _authManager = AuthManager();
 
   /// Create a new NetGuard instance
-  NetGuard([BaseOptions? options]) : super(options) {
+  NetGuard([super.options]) {
     // Always initialize network service when NetGuard is created
     _initializeNetworkServiceEarly();
   }
 
   /// Create NetGuard from existing Dio instance
-  NetGuard.fromDio(Dio dio) : super.fromDio(dio) {
+  NetGuard.fromDio(super.dio) : super.fromDio() {
     // Always initialize network service when NetGuard is created
     _initializeNetworkServiceEarly();
   }
@@ -280,22 +280,28 @@ class NetGuard extends NetGuardBase {
   }
 
   /// Manually refresh network status
+  @override
   Future<void> refreshNetworkStatus() async {
     await NetworkService.instance.refresh();
   }
 
   /// Get network connection info
+  @override
   Map<String, dynamic> get networkInfo => NetworkService.instance.getConnectionInfo();
 
   /// Get current network status
+  @override
   NetworkStatus get networkStatus => NetworkService.instance.currentStatus;
 
   /// Check if currently online
+  @override
   bool get isOnline => NetworkService.instance.isOnline;
 
   /// Check if currently offline
+  @override
   bool get isOffline => NetworkService.instance.isOffline;
 
   /// Stream of network status changes - Available immediately without manual initialization
+  @override
   Stream<NetworkStatus> get statusStream => NetworkService.instance.statusStream;
 }

@@ -1,4 +1,4 @@
-library netguard;
+library;
 
 export 'src/netguard.dart';
 export 'src/netguard_base.dart';
