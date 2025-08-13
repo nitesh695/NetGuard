@@ -578,10 +578,10 @@ class AuthInterceptor extends QueuedInterceptor {
   }
 
   /// Manually reset logout cooldown (useful for testing or specific scenarios)
-  void resetLogoutCooldown() {
-    _lastLogoutTime = null;
-    _log('🔄 Logout cooldown manually reset');
-  }
+  // void resetLogoutCooldown() {
+  //   _lastLogoutTime = null;
+  //   _log('🔄 Logout cooldown manually reset');
+  // }
 
   /// Clear any pending state (useful for testing or cleanup)
   void clear() {
