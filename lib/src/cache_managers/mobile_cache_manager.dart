@@ -87,7 +87,7 @@ class CacheManagerImpl {
       await _box.put(key, jsonEncode(entry));
       await _enforceMaxSize(options);
     } catch (e) {
-      print('❌ NetGuard Cache Save Error: $e');
+      logger('❌ NetGuard Cache Save Error: $e');
     }
   }
 
@@ -104,7 +104,7 @@ class CacheManagerImpl {
       final key = _generateKey(path, query);
       final cachedString = _box.get(key);
       if (cachedString == null) {
-        print('🔍 Cache miss for: $path');
+        logger('🔍 Cache miss for: $path');
         return null;
       }
 
@@ -115,13 +115,13 @@ class CacheManagerImpl {
 
       if (age > expiry.inMilliseconds) {
         await _box.delete(key);
-        print('⏰ Cache expired for: $path');
+        logger('⏰ Cache expired for: $path');
         return null;
       }
 
       return cached['data'];
     } catch (e) {
-      print('❌ NetGuard Cache Get Error: $e');
+      logger('❌ NetGuard Cache Get Error: $e');
       return null;
     }
   }
@@ -153,9 +153,9 @@ class CacheManagerImpl {
         await _box.delete(entry.key);
       }
 
-      print('🧹 Cache cleanup: removed old entries');
+      logger('🧹 Cache cleanup: removed old entries');
     } catch (e) {
-      print('❌ NetGuard Cache Size Enforcement Error: $e');
+      logger('❌ NetGuard Cache Size Enforcement Error: $e');
     }
   }
 
@@ -189,10 +189,10 @@ class CacheManagerImpl {
       }
 
       if (keysToDelete.isNotEmpty) {
-        print('🗑️ Cleared expired cache entries');
+        logger('🗑️ Cleared expired cache entries');
       }
     } catch (e) {
-      print('❌ NetGuard Cache Clear Expired Error: $e');
+      logger('❌ NetGuard Cache Clear Expired Error: $e');
     }
   }
 
@@ -202,10 +202,10 @@ class CacheManagerImpl {
       if (_isInitialized) {
         final count = _box.length;
         await _box.clear();
-        print('🗑️ Cleared all $count cache entries');
+        logger('🗑️ Cleared all $count cache entries');
       }
     } catch (e) {
-      print('❌ NetGuard Cache Clear All Error: $e');
+      logger('❌ NetGuard Cache Clear All Error: $e');
     }
   }
 

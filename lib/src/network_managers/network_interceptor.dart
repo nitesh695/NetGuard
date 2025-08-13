@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:netguard/netguard.dart';
 
+import '../utils/util.dart';
 import 'network_exception.dart';
 import 'network_service.dart';
 
@@ -49,7 +50,7 @@ class NetworkInterceptor extends Interceptor {
       final currentRetry = err.requestOptions.extra['currentNetworkRetry'] as int? ?? 0;
 
       if (currentRetry < maxRetries) {
-        print('🔄 Network error detected, attempting retry ${currentRetry + 1}/$maxRetries');
+        logger('🔄 Network error detected, attempting retry ${currentRetry + 1}/$maxRetries');
 
         // Wait for network to be restored
         await _waitForNetwork(err.requestOptions);
@@ -75,7 +76,7 @@ class NetworkInterceptor extends Interceptor {
   Future<void> _waitForNetwork(RequestOptions options) async {
     if (_networkService.isOnline) return;
 
-    print('⏳ Waiting for network connection...');
+    logger('⏳ Waiting for network connection...');
 
     final completer = Completer<void>();
     late StreamSubscription subscription;
@@ -94,7 +95,7 @@ class NetworkInterceptor extends Interceptor {
         timeout.cancel();
         subscription.cancel();
         completer.complete();
-        print('✅ Network connection restored');
+        logger('✅ Network connection restored');
       }
     });
 

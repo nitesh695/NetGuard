@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:dio/dio.dart';
 
+import '../utils/util.dart';
+
 /// Configuration for authentication behavior
 class AuthConfig {
   /// Custom header name for the token (default: 'Authorization')
@@ -554,7 +556,7 @@ class AuthInterceptor extends QueuedInterceptor {
   /// Log message if logging is enabled
   void _log(String message) {
     if (_config.enableLogging) {
-      print('[NetGuard Auth] $message');
+      logger('[NetGuard Auth] $message');
     }
   }
 

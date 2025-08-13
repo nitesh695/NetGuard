@@ -1,4 +1,5 @@
 import '../../netguard.dart';
+import '../utils/util.dart';
 
 /// Authentication manager for NetGuard
 class AuthManager {
@@ -33,12 +34,12 @@ class AuthManager {
       config: _config!,
     );
 
-    print('🔐 AuthManager configured with:');
-    print('   - Token Header: ${_config!.tokenHeaderName}');
-    print('   - Token Prefix: "${_config!.tokenPrefix}"');
-    print('   - Max Retry Attempts: ${_config!.maxRetryAttempts}');
-    print('   - Auto Refresh: ${_config!.autoRefresh}');
-    print('   - Enable Logging: ${_config!.enableLogging}');
+    logger('🔐 AuthManager configured with:');
+    logger('   - Token Header: ${_config!.tokenHeaderName}');
+    logger('   - Token Prefix: "${_config!.tokenPrefix}"');
+    logger('   - Max Retry Attempts: ${_config!.maxRetryAttempts}');
+    logger('   - Auto Refresh: ${_config!.autoRefresh}');
+    logger('   - Enable Logging: ${_config!.enableLogging}');
   }
 
   /// Update tokens in the callbacks (if using AdvanceAuthCallbacks)
@@ -49,7 +50,7 @@ class AuthManager {
         accessToken: accessToken,
         refreshToken: refreshToken,
       );
-      print('🔄 Tokens updated in AuthManager');
+      logger('🔄 Tokens updated in AuthManager');
     }
   }
 
@@ -59,7 +60,7 @@ class AuthManager {
     _authInterceptor = null;
     _callbacks = null;
     _config = null;
-    print('🗑️ AuthManager cleared');
+    logger('🗑️ AuthManager cleared');
   }
 
   /// Get authentication status for debugging
@@ -85,23 +86,23 @@ class AuthManager {
   /// Test token refresh manually (for debugging)
   Future<String?> testTokenRefresh() async {
     if (!isConfigured || _callbacks == null) {
-      print('❌ AuthManager not configured for token refresh test');
+      logger('❌ AuthManager not configured for token refresh test');
       return null;
     }
 
     try {
-      print('🧪 Testing token refresh...');
+      logger('🧪 Testing token refresh...');
       final newToken = await _callbacks!.refreshToken();
       if (newToken != null) {
-        print('✅ Token refresh test successful: ${newToken.substring(0, 20)}...');
+        logger('✅ Token refresh test successful: ${newToken.substring(0, 20)}...');
         await _callbacks!.onTokenRefreshed(newToken);
         return newToken;
       } else {
-        print('❌ Token refresh test returned null');
+        logger('❌ Token refresh test returned null');
         return null;
       }
     } catch (e) {
-      print('❌ Token refresh test failed: $e');
+      logger('❌ Token refresh test failed: $e');
       return null;
     }
   }

@@ -125,15 +125,15 @@ class NetworkService {
       logger('🏓 Testing actual internet connectivity...');
       final actuallyOnline = await _performConnectivityTest();
       _currentStatus = actuallyOnline ? NetworkStatus.online : NetworkStatus.offline;
-      print('🎯 Internet test result: $actuallyOnline');
+      logger('🎯 Internet test result: $actuallyOnline');
     } else {
       _currentStatus = NetworkStatus.offline;
-      print('📵 No network connection detected');
+      logger('📵 No network connection detected');
     }
 
     // Notify listeners if status changed
     if (previousStatus != _currentStatus) {
-      print('🔄 Network status changed: $previousStatus → $_currentStatus');
+      logger('🔄 Network status changed: $previousStatus → $_currentStatus');
       _statusController.add(_currentStatus);
     }
   }
@@ -150,7 +150,7 @@ class NetworkService {
 
       for (final endpoint in testEndpoints) {
         try {
-          print('🔗 Testing endpoint: $endpoint');
+          logger('🔗 Testing endpoint: $endpoint');
           final client = HttpClient();
           client.connectionTimeout = const Duration(seconds: 10);
 
@@ -159,12 +159,12 @@ class NetworkService {
           await response.drain(); // Consume the response
           client.close();
 
-          print('✅ Endpoint $endpoint responded with: ${response.statusCode}');
+          logger('✅ Endpoint $endpoint responded with: ${response.statusCode}');
           if (response.statusCode >= 200 && response.statusCode < 300) {
             return true;
           }
         } catch (e) {
-          print('❌ Endpoint $endpoint failed: $e');
+          logger('❌ Endpoint $endpoint failed: $e');
           // Try next endpoint
           continue;
         }
@@ -172,14 +172,14 @@ class NetworkService {
 
       return false;
     } catch (e) {
-      print('❌ Connectivity test failed: $e');
+      logger('❌ Connectivity test failed: $e');
       return false;
     }
   }
 
   /// Manually refresh network status
   Future<void> refresh() async {
-    print('🔄 Manually refreshing network status...');
+    logger('🔄 Manually refreshing network status...');
     await _checkConnectivity();
   }
 
@@ -189,7 +189,7 @@ class NetworkService {
     _statusController.close();
     _isMonitoring = false;
     _isInitialized = false;
-    print('🛑 NetworkService disposed');
+    logger('🛑 NetworkService disposed');
   }
 
   /// Get network connection info

@@ -62,9 +62,9 @@ class CacheManagerImpl {
       html.window.localStorage[key] = jsonEncode(entry);
       await _enforceMaxSize(options);
 
-      // print('💾 Web cached response for: $path');
+      // logger('💾 Web cached response for: $path');
     } catch (e) {
-      print('❌ NetGuard Web Cache Save Error: $e');
+      logger('❌ NetGuard Web Cache Save Error: $e');
     }
   }
 
@@ -81,7 +81,7 @@ class CacheManagerImpl {
       final key = _generateKey(path, query);
       final cachedString = html.window.localStorage[key];
       if (cachedString == null) {
-        print('🔍 Web cache miss for: $path');
+        logger('🔍 Web cache miss for: $path');
         return null;
       }
 
@@ -92,14 +92,14 @@ class CacheManagerImpl {
 
       if (age > expiry.inMilliseconds) {
         html.window.localStorage.remove(key);
-        print('⏰ Web cache expired for: $path');
+        logger('⏰ Web cache expired for: $path');
         return null;
       }
 
-      print('🎯 Web cache hit for: $path');
+      logger('🎯 Web cache hit for: $path');
       return cached['data'];
     } catch (e) {
-      print('❌ NetGuard Web Cache Get Error: $e');
+      logger('❌ NetGuard Web Cache Get Error: $e');
       return null;
     }
   }
@@ -135,9 +135,9 @@ class CacheManagerImpl {
         html.window.localStorage.remove(entry.key);
       }
 
-      print('🧹 Web cache cleanup: removed ${toRemove.length} old entries');
+      logger('🧹 Web cache cleanup: removed ${toRemove.length} old entries');
     } catch (e) {
-      print('❌ NetGuard Web Cache Size Enforcement Error: $e');
+      logger('❌ NetGuard Web Cache Size Enforcement Error: $e');
     }
   }
 
@@ -152,9 +152,9 @@ class CacheManagerImpl {
         html.window.localStorage.remove(key);
       }
 
-      print('🗑️ Web cache cleared ${keysToRemove.length} entries');
+      logger('🗑️ Web cache cleared ${keysToRemove.length} entries');
     } catch (e) {
-      print('❌ NetGuard Web Cache Clear All Error: $e');
+      logger('❌ NetGuard Web Cache Clear All Error: $e');
     }
   }
 
