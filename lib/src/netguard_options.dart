@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
+import 'package:netguard/src/utils/util.dart';
 
 import '../netguard.dart';
 
@@ -141,7 +142,7 @@ class NetGuardOptions {
       if (_onNetworkHandlingEnabled != null) {
         // Don't await here to avoid blocking the setter
         _onNetworkHandlingEnabled!().catchError((error) {
-          print('❌ Network handling initialization failed: $error');
+          logger('❌ Network handling initialization failed: $error');
         });
       }
     } else {

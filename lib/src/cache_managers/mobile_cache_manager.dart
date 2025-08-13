@@ -4,6 +4,7 @@ import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../netguard.dart';
+import '../utils/util.dart';
 
 class CacheManagerImpl {
   static const String _boxName = 'netguard_cache_box';
@@ -43,12 +44,12 @@ class CacheManagerImpl {
       // Clean expired entries on initialization
       await _clearExpired(options);
 
-      print('✅ NetGuard Cache initialized successfully.');
+      logger('✅ NetGuard Cache initialized successfully.');
       return true;
     } catch (e) {
       _isInitialized = false;
       _initializationError = e.toString();
-      print('❌ NetGuard Cache Init Error: $e');
+      logger('❌ NetGuard Cache Init Error: $e');
       return false;
     }
   }

@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:netguard/src/utils/util.dart';
 import '../netguard.dart';
 import 'network_managers/network_service.dart';
 
@@ -31,12 +32,12 @@ class NetGuard extends NetGuardBase {
   void _initializeNetworkServiceEarly() {
     NetworkService.instance.initialize().then((success) {
       if (success) {
-        print('🌐 Network service initialized automatically');
+        logger('🌐 Network service initialized automatically');
       } else {
-        print('❌ Network service auto-initialization failed: ${NetworkService.instance.initializationError}');
+        logger('❌ Network service auto-initialization failed: ${NetworkService.instance.initializationError}');
       }
     }).catchError((error) {
-      print('❌ Network service auto-initialization error: $error');
+      logger('❌ Network service auto-initialization error: $error');
     });
   }
 
@@ -86,11 +87,11 @@ class NetGuard extends NetGuardBase {
   }) async
   {
     if (!_authManager.isConfigured) {
-      print('❌ Auth not configured, cannot update tokens');
+      logger('❌ Auth not configured, cannot update tokens');
       return;
     }
 
-    print('🔄 Updating auth tokens in NetGuard...');
+    logger('🔄 Updating auth tokens in NetGuard...');
 
     // Update tokens in the auth manager
     await _authManager.updateTokens(
@@ -105,30 +106,30 @@ class NetGuard extends NetGuardBase {
         accessToken: accessToken,
         refreshToken: refreshToken,
       );
-      print('✅ Tokens updated successfully');
+      logger('✅ Tokens updated successfully');
     }
   }
 
   /// Test authentication flow (useful for debugging) - ADD THIS METHOD
   Future<void> testAuthFlow() async {
     if (!_authManager.isConfigured) {
-      print('❌ Auth not configured for testing');
+      logger('❌ Auth not configured for testing');
       return;
     }
 
-    print('🧪 Testing authentication flow...');
+    logger('🧪 Testing authentication flow...');
 
     // Test getting current token
     final currentToken = await _authManager.callbacks?.getToken();
-    print('📋 Current token: ${currentToken?.substring(0, 20) ?? 'null'}...');
+    logger('📋 Current token: ${currentToken?.substring(0, 20) ?? 'null'}...');
 
     // Test token refresh
     final newToken = await _authManager.testTokenRefresh();
-    print('📋 Refresh result: ${newToken?.substring(0, 20) ?? 'null'}...');
+    logger('📋 Refresh result: ${newToken?.substring(0, 20) ?? 'null'}...');
 
     // Print auth status
     final status = _authManager.getStatus();
-    print('📊 Auth status: $status');
+    logger('📊 Auth status: $status');
   }
 
   /// Get authentication status

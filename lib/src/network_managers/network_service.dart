@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 
+import '../utils/util.dart';
+
 enum NetworkStatus {
   online,
   offline,
@@ -48,7 +50,7 @@ class NetworkService {
 
     try {
       _initializationError = null;
-      print('🌐 Initializing NetworkService...');
+      logger('🌐 Initializing NetworkService...');
 
       // Check initial connectivity
       await _checkConnectivity();
@@ -57,11 +59,11 @@ class NetworkService {
       _startMonitoring();
 
       _isInitialized = true;
-      print('✅ NetworkService initialized - Status: $_currentStatus');
+      logger('✅ NetworkService initialized - Status: $_currentStatus');
       return true;
     } catch (e) {
       _initializationError = e.toString();
-      print('❌ NetworkService initialization failed: $e');
+      logger('❌ NetworkService initialization failed: $e');
       _currentStatus = NetworkStatus.unknown;
       _isInitialized = false;
       return false;
@@ -75,32 +77,32 @@ class NetworkService {
     try {
       _connectivitySubscription = _connectivity.onConnectivityChanged.listen(
             (List<ConnectivityResult> results) async {
-          print('🔄 Connectivity changed: $results');
+              logger('🔄 Connectivity changed: $results');
           await _updateConnectivityStatus(results);
         },
         onError: (error) {
-          print('❌ Network monitoring error: $error');
+          logger('❌ Network monitoring error: $error');
           _currentStatus = NetworkStatus.unknown;
           _statusController.add(_currentStatus);
         },
       );
 
       _isMonitoring = true;
-      print('📡 Network monitoring started');
+      logger('📡 Network monitoring started');
     } catch (e) {
-      print('❌ Failed to start network monitoring: $e');
+      logger('❌ Failed to start network monitoring: $e');
     }
   }
 
   /// Check current connectivity
   Future<void> _checkConnectivity() async {
     try {
-      print('🔍 Checking initial connectivity...');
+      logger('🔍 Checking initial connectivity...');
       final List<ConnectivityResult> connectivityResults = await _connectivity.checkConnectivity();
-      print('📶 Connectivity results: $connectivityResults');
+      logger('📶 Connectivity results: $connectivityResults');
       await _updateConnectivityStatus(connectivityResults);
     } catch (e) {
-      print('❌ Connectivity check failed: $e');
+      logger('❌ Connectivity check failed: $e');
       _currentStatus = NetworkStatus.unknown;
     }
   }
@@ -116,11 +118,11 @@ class NetworkService {
         result == ConnectivityResult.ethernet ||
         result == ConnectivityResult.vpn);
 
-    print('📊 Has connection: $hasConnection');
+    logger('📊 Has connection: $hasConnection');
 
     if (hasConnection) {
       // Verify actual internet connectivity with a ping test
-      print('🏓 Testing actual internet connectivity...');
+      logger('🏓 Testing actual internet connectivity...');
       final actuallyOnline = await _performConnectivityTest();
       _currentStatus = actuallyOnline ? NetworkStatus.online : NetworkStatus.offline;
       print('🎯 Internet test result: $actuallyOnline');

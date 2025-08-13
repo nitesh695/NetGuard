@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:dio/dio.dart';
+import 'package:netguard/src/utils/util.dart';
 import 'cache_manager.dart';
 import 'models/QueuedRequest.dart';
 import 'netguard_options.dart';
@@ -67,7 +68,7 @@ abstract class NetGuardBase {
   Future<void> _processQueuedRequests() async {
     if (_requestQueue.isEmpty) return;
 
-    print('🔄 Processing ${_requestQueue.length} queued requests...');
+    logger('🔄 Processing ${_requestQueue.length} queued requests...');
 
     final queueCopy = List<QueuedRequest>.from(_requestQueue);
     _requestQueue.clear();
@@ -106,7 +107,7 @@ abstract class NetGuardBase {
       }
     }
 
-    print('✅ Processed all queued requests');
+    logger('✅ Processed all queued requests');
   }
 
   /// Create a network error response
@@ -181,7 +182,7 @@ abstract class NetGuardBase {
               );
             }
           } catch (e) {
-            print("Background fetch error: $e");
+            logger("Background fetch error: $e");
           }
         }());
       }
@@ -223,7 +224,7 @@ abstract class NetGuardBase {
   Future<void> _initializeNetworkHandling() async {
     if (!options.handleNetwork || _networkInitialized) return;
 
-    print('🌐 Initializing network handling...');
+    logger('🌐 Initializing network handling...');
 
     try {
       // Wait for network service to be initialized (should already be initializing)
@@ -233,7 +234,7 @@ abstract class NetGuardBase {
       }
 
       if (!success) {
-        print('❌ Network service initialization failed: ${NetworkService.instance.initializationError}');
+        logger('❌ Network service initialization failed: ${NetworkService.instance.initializationError}');
         return;
       }
 
@@ -241,13 +242,13 @@ abstract class NetGuardBase {
       if (!_networkInterceptorAdded) {
         _dio.interceptors.insert(0, NetworkInterceptor()); // Insert at beginning for priority
         _networkInterceptorAdded = true;
-        print('📡 Network interceptor added');
+        logger('📡 Network interceptor added');
       }
 
       _networkInitialized = true;
-      print('✅ Network handling initialized successfully');
+      logger('✅ Network handling initialized successfully');
     } catch (e) {
-      print('❌ Network handling initialization failed: $e');
+      logger('❌ Network handling initialization failed: $e');
     }
   }
 
@@ -311,11 +312,11 @@ abstract class NetGuardBase {
 
     // Check network handling is enabled
     if (this.options.handleNetwork) {
-      print("Network handling enabled. Online status: $isNetworkOnline");
+      logger("Network handling enabled. Online status: $isNetworkOnline");
 
       // If network is offline
       if (!isNetworkOnline) {
-        print("📱 Network is offline, checking cache...");
+        logger("📱 Network is offline, checking cache...");
 
         // Try to get from cache first
         if (useCache) {
@@ -326,7 +327,7 @@ abstract class NetGuardBase {
           );
 
           if (cached != null) {
-            print("💾 Returning cached response");
+            logger("💾 Returning cached response");
             return Response<T>(
               data: cached as T,
               statusCode: 200,
@@ -337,7 +338,7 @@ abstract class NetGuardBase {
         }
 
         // No cache available, queue the request and return network error response
-        print("📋 Queueing request for when network comes online...");
+        logger("📋 Queueing request for when network comes online...");
 
         final completer = Completer<Response<T>>();
         final queuedRequest = QueuedRequest(
@@ -587,7 +588,7 @@ abstract class NetGuardBase {
 
     // Handle offline mode for GET with queue support
     if (this.options.handleNetwork && !isNetworkOnline && method == 'get') {
-      print("📱 Network is offline, checking cache...");
+      logger("📱 Network is offline, checking cache...");
 
       // Try to get cached response
       if (useCache) {
@@ -598,7 +599,7 @@ abstract class NetGuardBase {
         );
 
         if (cached != null) {
-          print("💾 Returning cached response");
+          logger("💾 Returning cached response");
           return Response<T>(
             data: cached as T,
             statusCode: 200,
@@ -609,7 +610,7 @@ abstract class NetGuardBase {
       }
 
       // No cache: queue request and return network error response
-      print("📋 Queueing GET request for when network comes online...");
+      logger("📋 Queueing GET request for when network comes online...");
 
       final completer = Completer<Response<T>>();
       final queuedRequest = QueuedRequest(

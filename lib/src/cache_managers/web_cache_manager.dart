@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:html' as html;
 
 import '../../netguard.dart';
+import '../utils/util.dart';
 
 class CacheManagerImpl {
   static const String _keyPrefix = 'netguard_cache_';
@@ -18,12 +19,12 @@ class CacheManagerImpl {
       html.window.localStorage.remove('netguard_test');
 
       _isInitialized = true;
-      print('✅ NetGuard Web Cache initialized successfully');
+      logger('✅ NetGuard Web Cache initialized successfully');
       return true;
     } catch (e) {
       _isInitialized = false;
       _initializationError = e.toString();
-      print('❌ NetGuard Web Cache Init Error: $e');
+      logger('❌ NetGuard Web Cache Init Error: $e');
       return false;
     }
   }
