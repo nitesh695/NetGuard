@@ -26,6 +26,9 @@ class AuthConfig {
   /// Cooldown duration for logout function (default: 1 minute)
   final Duration logoutCooldown;
 
+  /// Cooldown duration for refresh token function (default: 30 seconds)
+  final Duration refreshTokenCooldown;
+
   const AuthConfig({
     this.tokenHeaderName = 'Authorization',
     this.tokenPrefix = 'Bearer ',
@@ -34,6 +37,7 @@ class AuthConfig {
     this.autoRefresh = true,
     this.enableLogging = false,
     this.logoutCooldown = const Duration(minutes: 1),
+    this.refreshTokenCooldown = const Duration(seconds: 30),
   });
 }
 
@@ -49,6 +53,7 @@ abstract class AuthCallbacks {
   Future<void> onTokenRefreshed(String newToken);
 
   /// Called when authentication fails and user should be logged out
+  /// Implementation should clear both access token and refresh token
   Future<void> onLogout();
 }
 
@@ -63,15 +68,17 @@ class _PendingAuthRequest {
       : timestamp = DateTime.now();
 }
 
-/// Internal class to hold refresh result
+/// Internal class to hold refresh result with caching capability
 class _RefreshResult {
   final bool success;
   final String? token;
+  final DateTime timestamp;
 
-  _RefreshResult({required this.success, this.token});
+  _RefreshResult({required this.success, this.token})
+      : timestamp = DateTime.now();
 }
 
-/// Authentication interceptor for NetGuard with improved queue management and logout cooldown
+/// Authentication interceptor for NetGuard with improved queue management and refresh token cooldown
 class AuthInterceptor extends QueuedInterceptor {
   final AuthCallbacks _callbacks;
   final AuthConfig _config;
@@ -83,6 +90,10 @@ class AuthInterceptor extends QueuedInterceptor {
 
   // Logout cooldown tracking
   DateTime? _lastLogoutTime;
+
+  // Refresh token cooldown tracking
+  DateTime? _lastRefreshTime;
+  _RefreshResult? _lastRefreshResult;
 
   AuthInterceptor({
     required AuthCallbacks callbacks,
@@ -161,7 +172,41 @@ class AuthInterceptor extends QueuedInterceptor {
     return canTrigger;
   }
 
-  /// Trigger logout with cooldown protection
+  /// Check if refresh token can be triggered (respects cooldown period)
+  bool _canTriggerRefreshToken() {
+    if (_lastRefreshTime == null) {
+      return true;
+    }
+
+    final timeSinceLastRefresh = DateTime.now().difference(_lastRefreshTime!);
+    final canTrigger = timeSinceLastRefresh >= _config.refreshTokenCooldown;
+
+    if (!canTrigger) {
+      final remainingCooldown = _config.refreshTokenCooldown - timeSinceLastRefresh;
+      _log('🚫 Refresh token cooldown active. ${remainingCooldown.inSeconds} seconds remaining');
+    }
+
+    return canTrigger;
+  }
+
+  /// Get cached refresh result if within cooldown period
+  _RefreshResult? _getCachedRefreshResult() {
+    if (_lastRefreshResult == null || _lastRefreshTime == null) {
+      return null;
+    }
+
+    final timeSinceLastRefresh = DateTime.now().difference(_lastRefreshTime!);
+    if (timeSinceLastRefresh < _config.refreshTokenCooldown) {
+      _log('📋 Using cached refresh result from ${timeSinceLastRefresh.inSeconds} seconds ago');
+      return _lastRefreshResult;
+    }
+
+    // Clear old cache if cooldown period has passed
+    _lastRefreshResult = null;
+    return null;
+  }
+
+  /// Trigger logout with cooldown protection and cleanup
   Future<bool> _triggerLogoutWithCooldown() async {
     if (!_canTriggerLogout()) {
       _log('⏳ Logout skipped due to cooldown period');
@@ -171,6 +216,10 @@ class AuthInterceptor extends QueuedInterceptor {
     try {
       _log('🔓 Triggering logout...');
       _lastLogoutTime = DateTime.now();
+
+      // Clear all authentication state before calling logout
+      _clearAuthenticationState();
+
       await _callbacks.onLogout();
       _log('✅ Logout callback completed successfully');
       return true;
@@ -178,6 +227,27 @@ class AuthInterceptor extends QueuedInterceptor {
       _log('❌ Logout callback failed: $logoutError');
       return false;
     }
+  }
+
+  /// Clear all authentication-related state
+  void _clearAuthenticationState() {
+    _log('🧹 Clearing all authentication state...');
+
+    // Clear refresh token cache and tracking
+    _lastRefreshTime = null;
+    _lastRefreshResult = null;
+
+    // Clear any ongoing refresh state
+    _isRefreshing = false;
+    if (_refreshCompleter != null && !_refreshCompleter!.isCompleted) {
+      _refreshCompleter!.complete(null);
+    }
+    _refreshCompleter = null;
+
+    // Clear all pending requests
+    _clearQueuedAuthRequests();
+
+    _log('✅ Authentication state cleared');
   }
 
   /// Handle unauthorized response (401 from onResponse)
@@ -406,8 +476,31 @@ class AuthInterceptor extends QueuedInterceptor {
     });
   }
 
-  /// Attempt to refresh the token with improved queue handling
+  /// Attempt to refresh the token with cooldown protection and caching
   Future<_RefreshResult> _attemptTokenRefresh() async {
+    // Check if we can use cached result
+    final cachedResult = _getCachedRefreshResult();
+    if (cachedResult != null) {
+      _log('🎯 Using cached refresh result (${cachedResult.success ? 'success' : 'failed'})');
+
+      if (cachedResult.success && cachedResult.token != null) {
+        // Process any queued requests with cached token
+        await _processQueuedAuthRequests(cachedResult.token!);
+      }
+
+      return cachedResult;
+    }
+
+    // Check if we can trigger refresh (respects cooldown)
+    if (!_canTriggerRefreshToken()) {
+      _log('⏳ Refresh token skipped due to cooldown period');
+      // Return the last result if available, otherwise return failure
+      if (_lastRefreshResult != null) {
+        return _lastRefreshResult!;
+      }
+      return _RefreshResult(success: false);
+    }
+
     // If already refreshing, wait for the ongoing refresh
     if (_isRefreshing) {
       try {
@@ -450,7 +543,17 @@ class AuthInterceptor extends QueuedInterceptor {
         }
       }
 
-      if (newToken != null && newToken.isNotEmpty) {
+      // Create and cache the refresh result
+      final refreshResult = _RefreshResult(
+        success: newToken != null && newToken.isNotEmpty,
+        token: newToken,
+      );
+
+      // Update tracking variables
+      _lastRefreshTime = DateTime.now();
+      _lastRefreshResult = refreshResult;
+
+      if (refreshResult.success && newToken != null) {
         // Notify that token was refreshed
         try {
           _log('📞 Calling onTokenRefreshed callback with new token...');
@@ -468,7 +571,7 @@ class AuthInterceptor extends QueuedInterceptor {
         // Process any queued requests
         await _processQueuedAuthRequests(newToken);
 
-        return _RefreshResult(success: true, token: newToken);
+        return refreshResult;
       } else {
         _log('❌ Automatic token refresh failed after all attempts');
 
@@ -478,10 +581,15 @@ class AuthInterceptor extends QueuedInterceptor {
         }
 
         _clearQueuedAuthRequests();
-        return _RefreshResult(success: false);
+        return refreshResult;
       }
     } catch (e) {
       _log('❌ Unexpected error during automatic token refresh: $e');
+
+      // Create and cache failure result
+      final refreshResult = _RefreshResult(success: false);
+      _lastRefreshTime = DateTime.now();
+      _lastRefreshResult = refreshResult;
 
       // Complete the refresh completer with error
       if (!_refreshCompleter!.isCompleted) {
@@ -489,7 +597,7 @@ class AuthInterceptor extends QueuedInterceptor {
       }
 
       _clearQueuedAuthRequests();
-      return _RefreshResult(success: false);
+      return refreshResult;
     } finally {
       _isRefreshing = false;
       _refreshCompleter = null;
@@ -569,6 +677,9 @@ class AuthInterceptor extends QueuedInterceptor {
   /// Get the time when logout was last triggered (null if never triggered)
   DateTime? get lastLogoutTime => _lastLogoutTime;
 
+  /// Get the time when refresh token was last triggered (null if never triggered)
+  DateTime? get lastRefreshTime => _lastRefreshTime;
+
   /// Get remaining cooldown time for logout (null if no cooldown active)
   Duration? get logoutCooldownRemaining {
     if (_lastLogoutTime == null) return null;
@@ -579,11 +690,31 @@ class AuthInterceptor extends QueuedInterceptor {
     return remainingCooldown.isNegative ? null : remainingCooldown;
   }
 
+  /// Get remaining cooldown time for refresh token (null if no cooldown active)
+  Duration? get refreshTokenCooldownRemaining {
+    if (_lastRefreshTime == null) return null;
+
+    final timeSinceLastRefresh = DateTime.now().difference(_lastRefreshTime!);
+    final remainingCooldown = _config.refreshTokenCooldown - timeSinceLastRefresh;
+
+    return remainingCooldown.isNegative ? null : remainingCooldown;
+  }
+
+  /// Get the last refresh result (null if no refresh has been attempted)
+  _RefreshResult? get lastRefreshResult => _lastRefreshResult;
+
   /// Manually reset logout cooldown (useful for testing or specific scenarios)
-  // void resetLogoutCooldown() {
-  //   _lastLogoutTime = null;
-  //   _log('🔄 Logout cooldown manually reset');
-  // }
+  void resetLogoutCooldown() {
+    _lastLogoutTime = null;
+    _log('🔄 Logout cooldown manually reset');
+  }
+
+  /// Manually reset refresh token cooldown (useful for testing or specific scenarios)
+  void resetRefreshTokenCooldown() {
+    _lastRefreshTime = null;
+    _lastRefreshResult = null;
+    _log('🔄 Refresh token cooldown manually reset');
+  }
 
   /// Clear any pending state (useful for testing or cleanup)
   void clear() {
@@ -592,5 +723,20 @@ class AuthInterceptor extends QueuedInterceptor {
     _refreshCompleter?.complete(null);
     _refreshCompleter = null;
     _lastLogoutTime = null;
+    _lastRefreshTime = null;
+    _lastRefreshResult = null;
+  }
+
+  /// Force logout and clear all authentication state (useful for manual logout)
+  Future<void> forceLogout() async {
+    _log('🔴 Force logout triggered - clearing all authentication state');
+    _clearAuthenticationState();
+
+    try {
+      await _callbacks.onLogout();
+      _log('✅ Force logout completed successfully');
+    } catch (logoutError) {
+      _log('❌ Force logout callback failed: $logoutError');
+    }
   }
 }

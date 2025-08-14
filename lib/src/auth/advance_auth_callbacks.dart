@@ -24,8 +24,8 @@ class AdvanceAuthCallbacks implements AuthCallbacks {
 
     // Debug logging
     logger('🔧 AdvanceAuthCallbacks initialized:');
-    logger('   - Initial Token: ${_token?.substring(0, 20) ?? 'null'}...');
-    logger('   - Initial Refresh Token: ${_refreshToken?.substring(0, 20) ?? 'null'}...');
+    logger('   - Initial Token: ${(_token ?? '').isNotEmpty ?_token?.substring(0, 20) : ''}...');
+    logger('   - Initial Refresh Token: ${(_refreshToken ?? '').isNotEmpty ?_refreshToken?.substring(0, 20) : ''}...');
     logger('   - onRefreshToken callback: ${_onRefreshToken != null ? 'SET' : 'NULL'}');
     logger('   - onTokenRefreshed callback: ${_onTokenRefreshed != null ? 'SET' : 'NULL'}');
     logger('   - onLogout callback: ${_onLogout != null ? 'SET' : 'NULL'}');

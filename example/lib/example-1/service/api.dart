@@ -17,7 +17,7 @@ class ApiClient extends getx.GetxService {
 
   init() async {
     // Configure base options first
-    _netGuard.options.baseUrl = 'https://example.com';
+    _netGuard.options.baseUrl = 'https://dev.gigsnepal.com';
     _netGuard.options.connectTimeout = const Duration(seconds: 10);
     _netGuard.options.receiveTimeout = const Duration(seconds: 10);
     _netGuard.options.sendTimeout = const Duration(seconds: 10);
@@ -99,7 +99,7 @@ class ApiClient extends getx.GetxService {
       // Get current refresh token from storage
       String? currentRefreshToken = await sharedPreferences.getRefToken();
 
-      if (currentRefreshToken == null || currentRefreshToken.isEmpty) {
+      if (currentRefreshToken.isEmpty) {
         print('❌ No refresh token available in storage');
         return null;
       }
@@ -112,7 +112,7 @@ class ApiClient extends getx.GetxService {
       };
 
       // Create a temporary Dio instance for refresh to avoid circular calls
-      final tempDio = NetGuard.instance.dio;
+      final tempDio = NetGuard.instance;
       tempDio.options.baseUrl = _netGuard.options.baseUrl!;
       tempDio.options.connectTimeout = _netGuard.options.connectTimeout;
       tempDio.options.receiveTimeout = _netGuard.options.receiveTimeout;
@@ -121,7 +121,7 @@ class ApiClient extends getx.GetxService {
         "/api/v1/refresh",
         data: body,
         options: Options(
-            extra: {'isRefresh': true},
+            // extra: {'isRefresh': true},
             headers: {
               'Content-Type': 'application/json',
             }
